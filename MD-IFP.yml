@@ -1,16 +1,17 @@
 name: MD-IFP
 channels:
-  - rdkit
   - conda-forge
+  - rdkit
   - defaults
 dependencies:
-  - jupyter
-  - jupyter_http_over_ws
-  - pandas
+  - pandas<2.0
   - seaborn
   - rdkit
   - mdanalysis=1.1.1
   - numpy
-  - nglview
   - openpyxl
-  - python=3.8
+  - python>=3.8
+  - ipython
+  # - jupyter
+  # - jupyter_http_over_ws
+  # - nglview
