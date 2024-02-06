@@ -11,7 +11,7 @@ import pylab as plt
 #sns.set()
 #sns.set_context("paper", font_scale=0.6)
 
-from Scripts.IFP_generation import *
+from IFP_generation import *
 
 from sklearn.cluster import KMeans
 

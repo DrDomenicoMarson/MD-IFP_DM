@@ -154,7 +154,7 @@ from MDAnalysis.coordinates.memory import MemoryReader
 #from sklearn import linear_model
 #from sklearn import preprocessing
 
-from Scripts.IFP_generation import *
+from IFP_generation import *
 
  
 

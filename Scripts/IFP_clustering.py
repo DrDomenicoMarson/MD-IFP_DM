@@ -41,7 +41,7 @@ from scipy import stats
 
 
 
-from Scripts.IFP_generation import *
+from IFP_generation import *
 
 
 from sklearn import linear_model
