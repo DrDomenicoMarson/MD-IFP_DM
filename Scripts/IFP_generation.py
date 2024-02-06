@@ -700,7 +700,9 @@ def read_IFP(list_IFP):
 #     PLOT IFP  and ligand water shell for a trajectory
 #
 ########################################
-def Plot_IFP(df,contact_collection=None,out_name="",ifp_list = ["HY","AR","HD","HA","HL","IP","IN","WB","LIP"]):
+def Plot_IFP(
+        df, contact_collection=None, out_name="",
+        ifp_list = ["HY","AR","HD","HA","HL","IP","IN","WB","LIP"]):
     """
     Parameters:
     df- IFP database
@@ -720,27 +722,27 @@ def Plot_IFP(df,contact_collection=None,out_name="",ifp_list = ["HY","AR","HD","
             columns_IFP.append(c)
         elif c[0:2]  == "RE":
             columns_CONT.append(c)
-                
+
     df1 = df[columns_IFP].values
     if df1.shape[0] < 2: return
     fig = plt.figure(figsize=(16, 6))
     gs = gridspec.GridSpec(1, 3, width_ratios=[4, 2, 1]) 
     ax = plt.subplot(gs[0])
-   
+
     ax =  plt.subplot(gs[0])
     ax.set_title('IFP')
     xticklabels = columns_IFP
     if len(columns_IFP) < 25:  sns.heatmap(np.float32(df1), cmap="YlGnBu", xticklabels=xticklabels)
     else:  sns.heatmap(np.float32(df1), cmap="YlGnBu")
     ax.set_title('IFP')
-    
+
     if( df[columns_CONT].shape[1] > 0):
         ax = plt.subplot(gs[1])
         ax.set_title('RE')
         df1 = df[columns_CONT].values
         sns.heatmap(np.float32(df1), cmap="YlGnBu")
         ax.set_title('Contacts')
-    
+
     if("WAT"  in df.columns.tolist()):
         ax = plt.subplot(gs[2])
         ax.set_ylim(0,max(df["WAT"].tolist()))
@@ -754,81 +756,94 @@ def Plot_IFP(df,contact_collection=None,out_name="",ifp_list = ["HY","AR","HD","
         ax.set_title('Water shell')
         ax.set_xlabel('frame')
         ax.set_ylabel('# of water molecules')
-    if out_name == "":   plt.show()
-    else: plt.savefig(out_name, dpi=300)
+    if out_name == "":
+        fig.show()
+    else:
+        fig.savefig(out_name, dpi=300)
+    plt.close(fig)
     return
 
 
 ###################################
 #
 ##################################
-def rank_IFP_resi(df,ifp_type=['AR','HY','HA','HD','HL','IP','IN',"IO","WB"]):
+def extract_and_rank_by_resnum(df: pd.DataFrame, ifp_type) -> np.ndarray:
     """    
-    script extracts and ranks by the residue number IFP list  from the IFP table 
+    old name was rank_IFP_resi
+    extracts and ranks by the residue number IFP list from the IFP table 
     
-    Parameters:
-    df - pkl table
-    ifp_type - list of IFP types to be considered
+    arguments:
+      df - IFP df
+      ifp_type - list of IFP types to be considered
     
-    Results:
-    columns_IFP - list of IFP
-    columns_R
+    return:
+      columns_IFP - list of IFP based on ift_type
+      columns_RE  - list of unspecific IFP
     """
-    columns_IFP = []  # standard IFP
-    number = []
-    for c in df.columns.tolist():
-        if c[0:2] in ifp_type: 
-            columns_IFP.append(c)
-            if c[3:].isdigit():    number.append(int(c[3:]))
-            elif c[4:].isdigit():    number.append(int(c[4:]))
-            elif c[5:].isdigit():    number.append(int(c[5:]))
-            else: number.append(int(c[6:]))
-    columns_IFP = np.asarray(columns_IFP)[np.argsort(np.asarray(number))]
 
-    columns_RE = []  # standard IFP
-    number = []
+    def add_to_numbers(number):
+        if c[3:].isdigit():
+            number.append(int(c[3:]))
+        elif c[4:].isdigit():
+            number.append(int(c[4:]))
+        elif c[5:].isdigit():
+            number.append(int(c[5:]))
+        else:
+            number.append(int(c[6:]))
+
+    columns_IFP, columns_RE = [], []
+    number_IFP, number_RE = [], []
     for c in df.columns.tolist():
-        if c[0:2] == "RE": 
+        if c[0:2] == "RE":
             columns_RE.append(c)
-            if c[3:].isdigit():    number.append(int(c[3:]))
-            elif c[4:].isdigit():    number.append(int(c[4:]))
-            elif c[5:].isdigit():    number.append(int(c[5:]))
-            else: number.append(int(c[6:]))
-
-    columns_RE = np.asarray(columns_RE)[np.argsort(np.asarray(number))]
-    return(columns_IFP,columns_RE)
+            add_to_numbers(number_RE)
+        elif c[0:2] in ifp_type:
+            columns_IFP.append(c)
+            add_to_numbers(number_IFP)
 
 
-###################################
-#
-##################################
+    columns_IFP = np.asarray(columns_IFP)[np.argsort(np.asarray(number_IFP))]
+    columns_RE = np.asarray(columns_RE)[np.argsort(np.asarray(number_RE))]
+    return columns_IFP, columns_RE
 
-def Plot_IF_trajectory(df_tot,ifp_type = np.asarray(['AR','HA','HD','HY','IP','IN',"IO","WB"]),head_tail=-1, out_name=""):
-    
-    columns_IFP,columns_RE= rank_IFP_resi(df_tot, ifp_type)
-    columns_sel = columns_IFP
+
+def Plot_IF_trajectory(df_tot, ifp_type, head_tail=-1, out_base_name=""):
     if head_tail < 0:
-        head_tail = int(df_tot.shape[0]/3)       
-    X = []
-    df = df_tot[columns_sel] 
-    columns_sel = columns_sel[df.mean().values > 0.01]
-    columns_HB=[]
-    [columns_HB.append(c) for c in columns_sel if (c[:2] == "HD" or c[:2] == "HA")]
-    columns_HB = np.asarray(columns_HB)    
+        head_tail = int(df_tot.shape[0]/3)
 
-    fig = plt.figure(figsize=(14,3),dpi=150)
+    columns_IFP, columns_RE = extract_and_rank_by_resnum(df_tot, ifp_type)
 
-    df = df_tot[np.append(columns_sel,"time")] 
-    n_hb = len(columns_HB[(df[columns_HB].mean()> 0.75).values])
-    plt.bar(range(0,len(columns_sel)),df[df.time < head_tail][columns_sel].mean(),alpha=0.6,label="first "+str(head_tail)+" frames")
-    plt.bar(range(0,len(columns_sel)),df[df.time > df.shape[0]-head_tail][columns_sel].mean(),alpha=0.6,label="last "+str(head_tail)+" frames")
-    plt.bar(np.asarray(range(0,len(columns_sel))),df[columns_sel].mean(),color="",label="all frames",edgecolor ='k',hatch="/")
-    plt.xticks(range(0,len(columns_sel)), columns_sel, rotation='vertical',fontsize=10)
-    plt.legend(fontsize=10, loc = 'upper left')
-    if out_name != "":
-        plt.savefig(out_name, dpi=300, bbox_inches='tight') 
-    plt.show()
-    return
+    for columns, name in zip([columns_IFP, columns_RE], ["IFP", "RE"]):
+        if len(columns) == 0:
+            print(name, " not found")
+            continue
+        df = df_tot[columns]
+        columns = columns[df.mean().values > 0.01]
+        df = df_tot[np.append(columns, "time")]
+        #columns_HB = np.array([c for c in columns if (c[:2] == "HD" or c[:2] == "HA")])
+        #n_hb = len(columns_HB[(df[columns_HB].mean()> 0.75).values])
+
+        fig, ax = plt.subplots(1, 1)
+        ax.bar(range(
+            0, len(columns)), df[df.time < head_tail][columns].mean(), 
+            alpha=0.6, label=f"mean over first {head_tail} frames")
+        ax.bar(
+            range(0, len(columns)), df[df.time > df.shape[0]-head_tail][columns].mean(),
+            alpha=0.6, label=f"mean over last {head_tail} frames")
+        ax.bar(
+            np.asarray(range(0, len(columns))), df[columns].mean(),
+            color="", label="mean over all frames", edgecolor ='k', hatch="/")
+
+        ax.set_xticks(range(0, len(columns)))
+        ax.set_xticklabels(columns)
+        plt.setp(ax.get_xticklabels(), rotation=90, ha="right", rotation_mode="anchor", fontsize=4)
+        ax.legend(loc='upper left', fontsize=8)
+
+        if out_base_name != "":
+            fig.savefig(f"{out_base_name}.{name}.pdf")
+        else:
+            fig.show()
+        plt.close(fig)
 
 #############################################
 #   

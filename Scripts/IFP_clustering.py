@@ -19,7 +19,7 @@
 
 
 
-import glob, os
+import os
 import sys
 import subprocess
 import numpy as np
@@ -41,7 +41,7 @@ from scipy import stats
 
 
 
-from IFP_generation import *
+import IFP_generation as gen
 
 
 from sklearn import linear_model
@@ -49,104 +49,69 @@ from sklearn import preprocessing
 from sklearn.cluster import KMeans
 
 
-
-
-
-########################################################################
-# Sorting of residue by number
-########################################################################
-def rank_IFP_resi(df,ifp_type=['AR','HY','HA','HD','HL','IP','IN',"IO"]):
+def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5) -> pd.DataFrame:
     """    
-    script extracts and ranks by the residue number IFP list  from the IFP table 
+    this function checks if there is a jump in the ligand position in  two neighbour frames,
+    which may appear due to incomplete wrapping system back to the box (i.e. because of the PBC).  
+    The trajectory frames starting from the detected jump will be removed from the dataset
     
-    Parameters:
-    df - pkl table
-    ifp_type - list of IFP types to be considered
-    
-    Results:
-    columns_IFP - list of IFP
-    columns_R
-    """
-    columns_IFP = []  # standard IFP
-    number = []
-    for c in df.columns.tolist():
-        if c[0:2] in ifp_type: 
-            columns_IFP.append(c)
-            if c[3:].isdigit():    number.append(int(c[3:]))
-            elif c[4:].isdigit():    number.append(int(c[4:]))
-            elif c[5:].isdigit():    number.append(int(c[5:]))
-            else: number.append(int(c[6:]))
-    columns_IFP = np.asarray(columns_IFP)[np.argsort(np.asarray(number))]
-
-    columns_RE = []  # standard IFP
-    number = []
-    for c in df.columns.tolist():
-        if c[0:2] == "RE": 
-            columns_RE.append(c)
-            if c[3:].isdigit():    number.append(int(c[3:]))
-            elif c[4:].isdigit():    number.append(int(c[4:]))
-            elif c[5:].isdigit():    number.append(int(c[5:]))
-            else: number.append(int(c[6:]))
-
-    columns_RE = np.asarray(columns_RE)[np.argsort(np.asarray(number))]
-    return(columns_IFP,columns_RE)
-
-########################################################################
-# 
-########################################################################
-
-def remove_dissociated_parts(df_tot,max_rmsd=15,max_dcom=3,max_drmsd=3):
-    """    
-    this function checks if there is a jump in the ligand position in  two neighbour frames, which may appear due to incomplete wrapping system back to the box (i.e. because of the PBC),  
-    a part of the trajectory starting from the detected jump will be removed from the dataset
-    
-    Parameters:
-    df_tot - pkl table
-    columns_IFP - list of IFP types to be considered
+    arguments:
+    df - dataframe to work on
     max_rmsd - frames with RMSD below this threshold wil be analyzed
-    max_dcom - maximum distance between center of mass (COM) of the ligand from the first snapshot that will be considered as an indication of jump
-    max_drmsd - maximum distance between center of mass (RMSD) of the ligand from the first snapshot that will be considered as an indication of jump
-    Results:
+    max_dcom - maximum distance between COM of the ligand from the previous snapshot that will be considered as an indication of jump
+    max_drmsd - maximum distance between RMSD of the ligand from the previous snapshot that will be considered as an indication of jump
+    
+    returns:
     df_new - new dataset
     """
     # remove trajectory part after dissociation
-    df_new= pd.DataFrame()
-    for l in np.unique(df_tot.ligand.values):
-        df_tot_lig = df_tot[df_tot.ligand == l]
-        for j in np.unique(df_tot_lig.Repl.values):
-            df_tot_Repl = df_tot_lig[df_tot_lig.Repl == j]
-            for i in np.unique(df_tot_Repl.Traj.values.astype(int)):
-                df_tot_Repl_Traj = df_tot_Repl[df_tot_Repl.Traj == str(i)]
-                #s = np.sum(df_tot_Repl_Traj.values.astype(int),axis=1)
-                s = df_tot_Repl_Traj.sum(axis =1).values
-                rmsd = df_tot_Repl_Traj.RMSDl.values
-                comx = df_tot_Repl_Traj.COM_x.values
-                comy = df_tot_Repl_Traj.COM_y.values
-                comz = df_tot_Repl_Traj.COM_z.values
+    fig, (ax_keep, ax_disc) = plt.subplots(2, 1)
+    df_new = pd.DataFrame()
+    for l in np.unique(df.ligand.values):
+        df_lig = df[df.ligand==l]
+        for repl in np.unique(df_lig.Repl.values):
+            df_repl = df_lig[df_lig.Repl==repl]
+            for traj in np.unique(df_repl.Traj.values):
+                df_traj = df_repl[df_repl.Traj==traj]
+                rmsd = df_traj.RMSDl.values
+                com = df_traj.COM.values
                 skip = -1
-                for r in range(1,rmsd.shape[0]):
-                    dcom = np.linalg.norm(np.asarray([float(comx[r-1]),float(comy[r-1]),float(comz[r-1])])-np.asarray([float(comx[r]),float(comy[r]),float(comz[r])]))
-                    drmsd = (rmsd[r]-rmsd[r-1]) 
-                    if  rmsd[r] < max_rmsd and (dcom > max_dcom or drmsd > max_drmsd):
-                        plt.plot(df_tot_Repl_Traj.time.values,df_tot_Repl_Traj.RMSDl.values)
+                for r in range(1, rmsd.shape[0]):
+                    dcom = np.linalg.norm(com[r]-com[r-1])
+                    drmsd = rmsd[r]-rmsd[r-1]
+                    if rmsd[r] < max_rmsd and (dcom > max_dcom or drmsd > max_drmsd):
                         skip = r
                         continue
-                if (np.argwhere(s == 0 ).flatten().shape[0] > 0) :
-                    mm = np.argwhere(s == 0 ).flatten()[0]
-                else: mm = -1
+
+                # not quite understood, but usually not visited...
+                mm = -1
+                s = df_traj.sum(axis=1).values
+                if np.argwhere(s==0).flatten().shape[0] > 0:
+                    mm = np.argwhere(s==0).flatten()[0]
+
                 if  mm > 0 or skip > 0:
-                    if mm > 0 and skip > 0:   mmr = min(mm,r)
-                    elif mm > 0: mmr =mm
-                    else: mmr = skip
-                    df_new = df_new.append(df_tot_Repl_Traj[df_tot_Repl_Traj.time.astype(int) < mmr])
-                    plt.plot(df_tot_Repl_Traj.time,df_tot_Repl_Traj.RMSDl)
-                else:
-                    df_new = df_new.append(df_tot_Repl_Traj)
-    plt.xlabel("frame",fontsize=14)
-    plt.ylabel("ligand RMSD",fontsize=14)
-    plt.title("Trajectories with a ligand jump")
-    plt.savefig("jump_traj.pdf")
-    return(df_new)
+                    if mm > 0 and skip > 0:
+                        mmr = min(mm, r)
+                    elif mm > 0:
+                        mmr = mm
+                    else:
+                        mmr = skip
+
+                    df_disc = df_traj[df_traj.time.astype(int) > mmr]
+                    df_traj = df_traj[df_traj.time.astype(int) <= mmr]
+                    ax_disc.plot(df_disc.time, df_disc.RMSDl, linewidth=0.2)
+                df_new = df_new.append(df_traj)
+                ax_keep.plot(df_traj.time, df_traj.RMSDl, linewidth=0.2)
+
+    for ax in [ax_keep, ax_disc]:
+        ax.set_xlabel("frame")
+        ax.set_ylabel("ligand RMSD")
+    ax_keep.set_title("Kept trajs")
+    ax_disc.set_title("Discarded trajs")
+    fig.tight_layout()
+    fig.savefig("rmsd_for_dissociation_detection.pdf")
+    plt.close(fig)
+    return df_new
 
 
 ########################################################################
@@ -154,35 +119,35 @@ def remove_dissociated_parts(df_tot,max_rmsd=15,max_dcom=3,max_drmsd=3):
 # Additionally column with ligand name is added
 # and COM column is splitted to COM_x, COM_y, COM_z
 ########################################################################
-def standard_IFP(unpickled_dfi,ligandsi):
+def standard_IFP(unpickled_dfs, ligands):
     """
-    Script for reading IFP databases; Additionally column with ligand name is added and COM column is splitted to COM_x, COM_y, COM_z
-    
-    Parameters:
-    dictionary of files with IFP databases {name1:file_path1[,name2:filepath2],...}
-    
-    Returns:
-    combined IFP database
+    reads IFP databases
+        column with ligand name is added
+        COM column is splitted to COM_x, COM_y, COM_z
+
+    returns:
+        combined IFP database
     """
 
     # add ligand names and make a joint list of columns
-    intersect = []
-    for (df,lig) in zip(unpickled_dfi,ligandsi):
-        df["ligand"] = np.repeat(lig,df.shape[0]) 
-        diff = np.setdiff1d(np.asarray(df.columns.tolist()),intersect)
-        if(len(intersect) == 0):  intersect = diff
-        else: intersect = np.append(intersect,diff)
-    
+    columns = None
+    for df, lig in zip(unpickled_dfs, ligands):
+        df["ligand"] = np.repeat(lig, df.shape[0])
+        if columns is None:
+            columns = np.array(df.columns.tolist())
+        else:
+            diff = np.setdiff1d(np.asarray(df.columns.tolist()), columns)
+            columns = np.append(columns, diff)
+
     # add empty columns for those that are present in the joint list but absent in the database
-    unpickled_df = pd.DataFrame(columns=intersect) 
-    for (df,lig) in zip(unpickled_dfi,ligandsi):
-        for ifp in intersect:
+    unpickled_df = pd.DataFrame(columns=columns)
+    for df, lig in zip(unpickled_dfs, ligands):
+        for ifp in columns:
             if ifp not in df.columns.tolist():
-                df[ifp] = np.repeat(np.int8(0),df.shape[0])    
+                df[ifp] = np.repeat(np.int8(0), df.shape[0])
         unpickled_df = pd.concat([unpickled_df, df], axis=0, sort=False)
 
-    # converge COM string to  x y z components
-    if "COM"  in unpickled_df.columns.tolist():
+    if "COM" in unpickled_df.columns.tolist():
         COM_x = []
         COM_y = []
         COM_z = []
@@ -193,47 +158,44 @@ def standard_IFP(unpickled_dfi,ligandsi):
         unpickled_df["COM_x"] = COM_x
         unpickled_df["COM_y"] = COM_y
         unpickled_df["COM_z"] = COM_z
-    
-    return(unpickled_df)
+
+    return unpickled_df
 
 ########################################################################
-# separate IFP by type 
-#
+# separate IFP by type
 ########################################################################
-def separate_IFP(complete_list_IFP):
-    """
-    
-    Parameters:
-    complete_list_IFP - list of IFPs
-    
-    Returns:
-    resi_list_sorted -
-    resi_name_list_sorted- 
-    ifp_list - 
-    """
-    resi_list = []
-    ifp_list = []
-    resi_name_list = []
-    for i,name in enumerate(complete_list_IFP):
-        if(name[2]== "_"):
-            resi = name[6:]
-            if resi not in resi_list: 
-                resi_list.append(resi)
-                resi_name_list.append(name[3:])
-                ifp_list.append([0,0,0,0,0])
-            ind = np.argwhere(np.asarray(resi_list) == resi)[0][0]
-            if(name[0:2] == "AR"):  ifp_list[ind][0]=1
-            if(name[0:2] == "HY"):  ifp_list[ind][1]=1
-            if(name[0:2] == "HD" or name[0:2] == "HA"):  ifp_list[ind][2] = 1
-            if(name[0:2] == "WB"):  ifp_list[ind][3] = 1
-            if(name[0:2] == "RE"):  ifp_list[ind][4] = 1
+
+def separate_IFP(columns):
+    print("separating IFP columns based on type, and sorting")
+    res_list = []
+    ifp_by_type = []
+    res_name_list = []
+    for col in columns:
+        if col[2] == "_":
+            res = int(col[6:])
+            if res not in res_list:
+                res_list.append(res)
+                res_name_list.append(col[3:])
+                ifp_by_type.append([0, 0, 0, 0, 0])
+            ind = np.argwhere(np.asarray(res_list)==res)[0][0]
+            if col[0:2] == "AR":
+                ifp_by_type[ind][0] = 1
+            if col[0:2] == "HY":
+                ifp_by_type[ind][1] = 1
+            if col[0:2] in ["HD", "HA"]:
+                ifp_by_type[ind][2] = 1
+            if col[0:2] == "WB":
+                ifp_by_type[ind][3] = 1
+            if col[0:2] == "RE":
+                ifp_by_type[ind][4] = 1
         else:
-            print(name, "- skip no-IFP property")
-    ind_sorted = np.argsort(np.asarray(resi_list).astype(int))
-    resi_list_sorted = np.sort(np.asarray(resi_list).astype(int)).astype(str)
-    resi_list_sorted = np.asarray(resi_list)[ind_sorted]  
-    resi_name_list_sorted = np.asarray(resi_name_list)[ind_sorted]
-    return(resi_list_sorted,resi_name_list_sorted,ifp_list)
+            ...
+            #print(f"Column '{col}' skipped, no-IFP property")
+    ind_sorted = np.argsort(res_list)
+    res_idx_sorted = np.array(res_list)[ind_sorted]  # NOTE: was .astype(str) in legacy
+    res_name_sorted = np.array(res_name_list)[ind_sorted]
+    ifp_by_type_sorted = np.array(ifp_by_type)[ind_sorted]  # NOTE: was not sorted in legacy
+    return res_idx_sorted, res_name_sorted, ifp_by_type_sorted
 
 ########################################################################
 #  deprecated, will be removed in the next version
@@ -362,96 +324,20 @@ def ar_complete_ligand(ligand,df_tot,resi_list_sorted,properties=["RE","AR","HD"
 
 ########################################################################
 ########################################################################
-def read_databases(d,name_template,name_len = 8):
-    """    
-    Parameters:
-    d - directory with multiple datasets 
-    name_template - name of IFP pkl files (may contain *)
-    name_len - number of the first letters in the name of  pkl files to be used as a ligand name
-    Results:
-    df_tot - concatenated dataset
-    ligandsi - a set of ligand names
+def read_databases(lst_of_pkl_files, lst_of_ligand_names):
+    """
+    returns:
+    df_tot - the concatenated datasets
+    ligands - the list of ligands names
     
     """
-    unpickled_dfi = []
-    ligandsi = []
-  #  list_IFP = {}    
-    new_list_col = []
-    for i,lig_pkl in enumerate(glob.glob(d+name_template)):
-        name= lig_pkl[len(d):len(d)+name_len]
-        print(lig_pkl,name)
-        trj_length = []
-        if os.path.exists(lig_pkl[:-3]+"dat"):
-            print("Trajectory length will be taken from "+lig_pkl[:-3]+"dat")
-            with open(lig_pkl[:-3]+"dat", 'r', encoding='utf-8') as infile:
-                for line in infile:
-                    if line.find("Complete TRJ") >= 0:  trj_length.append(int(line[line.find("xtc")+4:]))
-    #    list_IFP.update( {name:lig_pkl})
-        df_lig= pd.read_pickle(lig_pkl)
-        if len(trj_length) == df_lig.shape[0]:
-            df_lig.loc['length'] = trj_length
-        list_col = df_lig.columns.tolist()
-        new_list_col = [] # we need this array only once
-        #--- to re-number residues
-        """
-        for l in list_col:
-            if(l[2] == "_"):  
-                new_list_col.append(l)
-            else: new_list_col.append(l)
-        df_lig.columns = new_list_col
-        """
-        unpickled_dfi.append(df_lig)
-        ligandsi.append(name)
-#    if len(new_list_col) <= 0:
-#        print("There is no files in :",d+name_template)
-    df_tot = standard_IFP(unpickled_dfi,ligandsi)
+    unpickled_dfs, ligands = [], []
+    for lig_pkl, name in zip(lst_of_pkl_files, lst_of_ligand_names):
+        df_lig = pd.read_pickle(lig_pkl)
+        unpickled_dfs.append(df_lig)
+        ligands.append(name)
 
-    return(df_tot,ligandsi,new_list_col)
-
-
-########################################################################
-# deprecated, will be removed in the next version
-########################################################################
-def clean_ramd(df_tot,threshold = 0.9,check_z = False):
-    """
-    Parameters:
-    check_z - check if z coordinate is changed and drop trajectories where it did not
-    
-    Returns:
-    """
-    df_tot_new = pd.DataFrame(columns=df_tot.columns.tolist())
-    if "ligand" in np.unique(df_tot.columns.values):
-        for ligand in np.unique(df_tot.ligand):
-            df_tot_ligand= df_tot[df_tot.ligand == ligand]
-            for Repl in np.unique(df_tot_ligand.Repl):
-                df_tot_ligand_Repl = df_tot_ligand[df_tot_ligand.Repl == Repl]
-                list_out = 0
-                for Traj in np.unique(df_tot_ligand_Repl.Traj):
-                    df_tot_ligand_Repl_Traj = df_tot_ligand_Repl[df_tot_ligand_Repl.Traj == Traj]
-                    if check_z:  
-                        if((df_tot_ligand_Repl_Traj.COM_z.tolist()[0])*threshold > df_tot_ligand_Repl_Traj.COM_z.tolist()[-1]):
-                            print("Dropped",ligand, Repl, Traj)
-                            list_out += 1
-                    else:
-                        df_tot_new = pd.concat([df_tot_new,df_tot_ligand_Repl_Traj])
-                if(list_out > 5): print(ligand,"be discarded:   ",Repl)
-    else:
-             for Repl in np.unique(df_tot.Repl):
-                df_tot_Repl = df_tot[df_tot.Repl == Repl]
-                list_out = 0
-                for Traj in np.unique(df_tot_Repl.Traj):
-                    df_tot_Repl_Traj = df_tot_Repl[df_tot_Repl.Traj == Traj]
-                    if check_z:
-                        if((df_tot_Repl_Traj.COM_z.tolist()[0])*threshold > df_tot_Repl_Traj.COM_z.tolist()[-1]):
-                            list_out += 1
-                            print("Dropped",ligand, Repl, Traj)
-                        else:
-                            df_tot_new = pd.concat([df_tot_new,df_tot_Repl_Traj])
-                if(list_out > 5): print(ligand,"be discarded:   ",Repl)
-       
-    print(df_tot.shape, df_tot_new.shape)
-    return(df_tot_new)
-
+    return standard_IFP(unpickled_dfs, ligands)
 
 
 ##########################################################################
@@ -531,53 +417,46 @@ def Map_3D_grid(df_tot_to_save,filename):
     GRID_PRINT(filename,grid,grid_origin,grid_dim,grid_step)
     return
 
-########################################
-#  Plot COM RMSD in the clusters
-#
-#######################################
-def Plot_COM(df_ext, out_name=""):
+def Plot_COM(df, out_name=""):
     """
-    plotting average COM (x, y, and z separately) and the number of water molecules in the ligand solvation shell in each clusters
-    Parameters:
-    df_ext - IFP database with COM columns
-    
-    Returns:
-    
+    plotting average COM (x, y, and z separately)
+    and the number of water molecules in the ligand solvation shell
+    in each clusters    
     """
-    labels_list = np.unique(df_ext["label"].values)
-    if "WAT" in df_ext.columns.values:
-        list_properties = ["COM_x","COM_y","COM_z","RGyr","WAT"]
-    else:
-        list_properties = ["COM_x","COM_y","COM_z","RGyr"]
-    pos = []
-    pos_SD = []
-    for j in range(0,len(list_properties)):
-        pos.append([])
-        pos_SD.append([])
+    labels_list = np.unique(df["label"].values)
+    list_properties = ["COM_x", "COM_y", "COM_z", "RGyr"]
+    if "WAT" in df.columns.values:
+        list_properties += ["WAT"]
+        
+    pos_means = []
+    pos_stds = []
+    for j in range(0, len(list_properties)):
+        pos_means.append([])
+        pos_stds.append([])
 
     for l in labels_list:
-        dd = df_ext[df_ext["label"] == l]
-        for j,c in enumerate(list_properties):
-            pos[j].append(dd[c].mean())
-            pos_SD[j].append(dd[c].std())
+        dd = df[df["label"]==l]
+        for j, c in enumerate(list_properties):
+            pos_means[j].append(dd[c].mean())
+            pos_stds[j].append(dd[c].std())
 
-    fig = plt.figure(figsize=(16,5))
-    gs = GS.GridSpec(1, len(list_properties),wspace=0.2) #,height_ratios=[1,1],width_ratios=[2,2,1,1])
-    color = ["blue","green","red","k","orange","cyan"]
-    label = list_properties
+    fig, axes = plt.subplots(2, 3)
+    colors = ["blue", "green", "red", "k", "orange", "cyan"]
 
-    for i,(pos,SD) in enumerate(zip(pos,pos_SD)):
-        ax1 = plt.subplot(gs[i])
-        plt.scatter(x = labels_list,y = pos, color =color[i],label = label[i])
-        plt.errorbar(x = labels_list,y = pos,yerr= pos_SD[i], color = "gray" , fmt='o--', markersize=1)  
-        ax1.set_title(label[i], fontsize=18)
-        ax1.set_xlabel('cluster', fontsize=16)   
-        if i == 0:     ax1.set_ylabel('COM [arb. u.]', fontsize=18)  
-        else:  ax1.set_ylabel('', fontsize=18)  
-        ax1.grid(color='gray', linestyle='-', linewidth=0.2)
-    plt.show()
+    for pos_mean, pos_std, color, label, ax in zip(pos_means, pos_stds, colors, list_properties, axes.flatten()):
+        ax.scatter(x=labels_list, y=pos_mean, color=color, label=label)
+        ax.errorbar(x=labels_list,y=pos_mean, yerr=pos_std, color="gray", fmt='o--', markersize=1)
+        ax.set_title(label)
+        ax.set_xlabel('cluster #')
+        ax.set_ylabel(label)
+        ax.grid(color='gray', linestyle='-', linewidth=0.2)
+
+    fig.tight_layout()
     if out_name:
-        plt.savefig(out_name)
+        fig.savefig(out_name)
+    else:
+        fig.show()
+    plt.close(fig)
     return
 
 
