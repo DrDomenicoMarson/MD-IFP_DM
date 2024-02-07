@@ -1,6 +1,4 @@
 import numpy as np
-
-
 #from matplotlib import *
 #from matplotlib.patches import ArrowStyle
 #from matplotlib.patches import Ellipse
@@ -11,26 +9,50 @@ import pylab as plt
 #sns.set()
 #sns.set_context("paper", font_scale=0.6)
 
-from IFP_generation import *
-
-from sklearn.cluster import KMeans
-
 def plot_graph(
-        df_ext, out_base_name = "",
+        df_ext, out_base_name="",
         ligand: list = None,
         draw_round = False,
         water = False):
     """
-    Graph-based  representation of ligand dissociation trajectories
+    Create a graph-based representation of ligand dissociation, derived from IFPs
+    Each cluster is shown by a node with the size indicating the cluster population.
+
+    Nodes are
+     - positioned on an increasing logarithmic scale of the average ligand COM position
+       (or RMSD from the starting snapshot??)
+     - the node color denotes change of the ligand RMSD in the cluster from the starting structure.
+     - optionally (arg. water) surrounded by blue layer,
+        with thickness proportional to the ligand solvation shell in that cluster
+
+    Light-orange/pink arrows 
+     - represent the transitions Ci-->Cj and Cj-->Ci between two nodes
+     - has the width proportional to the number of transitions
+
+    Gray arrows
+     - indicate the total flow between two nodes
+        i.e., transitions (Ci-->Cj)-(Cj-->Ci)
+
+    Create also transition density and Flow plots,
+    that illustrate the number of (Ci-->Cj) transitions and net flow
+
     
-    Parameters:
-    df_ext - IFP database
-    out_base_name - base file name to save the images
-    ligand - generate dissociation pathways for a selected ligand only (note, that clusters properties still include data for all ligands)
-    draw_round - type of representation (plain/round)
-    water - visualize number of water molecules in the ligand solvation shell for each clutser
+    Parameters
+    ----------
+    df_ext: pd.DataFrame
+        dataframe with cluster information in label column
+    out_base_name: str
+        base file name to save the images
+    ligand: list[str] | None
+        generate dissociation pathways for a selected ligands only
+        (note that clusters properties still include data for all ligands)
+    draw_round: bool, optional [False]
+        type of representation (plain/round)
+    water: bool, optional [False]
+        visualize number of water molecules in the ligand solvation shell for each clutser
     
-    Returns:
+    Returns
+    ----------
     cluster label sorted by increase of the average ligand RMSD in each cluster
     """
 
