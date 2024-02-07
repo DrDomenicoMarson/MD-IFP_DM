@@ -4,7 +4,7 @@ import numpy as np
 #from matplotlib.patches import Ellipse
 from scipy.spatial import distance
 
-import pylab as plt
+import matplotlib.pyplot as plt
 #import seaborn as sns
 #sns.set()
 #sns.set_context("paper", font_scale=0.6)

@@ -50,29 +50,17 @@
 # 
 # 
 
-
-
-import glob, os
-import sys
 import numpy as np
-
 import pandas as pd
-from pandas import ExcelFile 
-
-from matplotlib import *
+import matplotlib.pyplot as plt
 from matplotlib import cm
-from matplotlib import gridspec
-import  pylab as plt
 import seaborn as sns
-
-from scipy import stats
 
 from rdkit import Chem
 from rdkit.Chem import ChemicalFeatures
 from rdkit import RDConfig
 
-import MDAnalysis as mda
-from MDAnalysis.analysis import contacts,align,rms
+from MDAnalysis.analysis import contacts, align, rms
 from MDAnalysis.analysis.base import AnalysisFromFunction
 from MDAnalysis.coordinates.memory import MemoryReader
 import MDAnalysis.analysis.hbonds as hb
@@ -81,6 +69,7 @@ from MDAnalysis.lib.distances import capped_distance, calc_angles
 import warnings
 warnings.filterwarnings("ignore")
 
+#import MDAnalysis as mda
 #mda.core.flags['use_periodic_selections'] = True
 #mda.core.flags['use_KDTree_routines'] = False
 

@@ -109,29 +109,15 @@
 import warnings
 warnings.filterwarnings("ignore")
 
-#%load_ext autoreload
-#%autoreload 2
-
-
 
 
 import glob, os
 import sys
-import subprocess
 import numpy as np
-
 import pandas as pd
-from pandas import ExcelFile 
-
-from matplotlib import *
-from matplotlib import cm
-import matplotlib.ticker
-import  pylab as plt
-import seaborn
+from matplotlib import gridspec
+import matplotlib.pyplot as plt
 import seaborn as sns
-
-#import ipywidgets as widgets
-
 from scipy import stats
 
 from rdkit import Chem
@@ -154,9 +140,7 @@ from MDAnalysis.coordinates.memory import MemoryReader
 #from sklearn import linear_model
 #from sklearn import preprocessing
 
-from IFP_generation import *
-
- 
+from IFP_generation import IFP, table_combine, Plot_IFP
 
 
 class Trj_Properties:
@@ -165,14 +149,14 @@ class Trj_Properties:
         self.stop = 0
         self.step = 1
         self.length = 0
-        self.df_properties = None  # Interaction fingerprients
-        self.rmsd_prot = None      # RMSD of the protein
+        self.df_properties = None  
+        self.rmsd_prot = None  
         self.rmsd_lig = None
         self.Rgr_prot = None
         self.Rgr_lig = None
         self.com_lig = None
         self.rmsd_auxi = None
-        
+
 
 
 class trajectories:
@@ -436,7 +420,7 @@ class trajectories:
             else: 
                 r_subset = np.take(self.traj,subset)
                 n_subset = np.take(self.names,subset)
-                if n_submest.shape[0] == 0:
+                if n_subset.shape[0] == 0:
                     print("Error:  IFP were not generated, please check if  input data ")
             
             IFP_list = self.IFP_unify(subset)
@@ -603,7 +587,7 @@ class trajectories:
             tau_bootstr = []
             if sub_set > 6:
                 for i in range(1,max_shuffle):
-                    numpy.random.shuffle(t)
+                    np.random.shuffle(t)
                     t_b = t[:sub_set]
                     # select time when 50% of ligand dissocate
                     t_b_sorted_50 = (np.sort(t_b)[int(len(t_b)/2.0-0.5)]+np.sort(t_b)[int(len(t_b)/2)])/2.0
@@ -662,7 +646,7 @@ class trajectories:
                 print("RAMD trajectories were not found in ",self.names)
             else:
                 # we will estimate final tau RAMD from all replicas as an average (omitting Nans, ie. incolplete simulations)
-                non_empty  = np.asarray(self.replicas)[numpy.isnan(np.asarray(self.replicas).astype(float)) == False]
+                non_empty  = np.asarray(self.replicas)[np.isnan(np.asarray(self.replicas).astype(float)) == False]
                 if len(non_empty)>0:
                     self.tau =  np.nanmean(non_empty)
                     self.tau_SD = max(np.nanstd(non_empty),sd_max)                  
@@ -880,7 +864,7 @@ class trajectories:
                 Rgr_prot.append(u_mem.select_atoms("protein").radius_of_gyration())
                 Rgr_lig.append(u_mem.select_atoms("resname "+sel_ligands).radius_of_gyration())
                 rmsd = superimpose_traj(ref,u_mem,selection_rmsd)  
-                if(rmsd[0] > 10.0): print("for the frame %s protein RMSD is very large: %s" %(i,rmsd[0]))
+                if(rmsd[0] > 10.,0): print("for the frame %s protein RMSD is very large: %s" %(i,rmsd[0]))
                 if(rmsd[1] > 10.0): print("for the frame %s ligand RMSD is very large: %s" %(i,rmsd[1]))
                 com_lig.append(np.round(u_mem.select_atoms("resname "+sel_ligands).center_of_mass(),2))
                 rmsd_prot.append(rmsd[0])
@@ -924,7 +908,7 @@ class trajectories:
             print("\n\n>>>>>>>>>>>>>>>>>","Replica: ",repl, "\n")
             step = max(step_analysis, 1)
             length,start,rmsd_prot,rmsd_lig, rmsd_auxi,Rgr_prot, Rgr_lig,com_lig,df_prop,df_HB,df_WB= self.analysis_traj(repl,start_analysis,step,WB_analysis, RE,Lipids,auxi_selection,reference ="ref")
-            df_prop_complete = table_combine(df_HB,df_WB,df_prop,sel_ligands,self.namd.contact_collection)   
+            df_prop_complete = table_combine(df_HB,df_WB,df_prop,sel_ligands,self.namd.contact_collection)
             self.namd.length.append((self.timestep/1000)*length)
             Plot_traj(rmsd_prot,rmsd_lig,rmsd_auxi,Rgr_prot,Rgr_lig,nmd) 
             for contact_name in df_prop.columns.tolist():

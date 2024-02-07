@@ -16,38 +16,11 @@
 #    69118 Heidelberg, Germany
 ################################# 
 
-
-
-
-import os
-import sys
-import subprocess
 import numpy as np
-
 import pandas as pd
-from pandas import ExcelFile 
-
-from matplotlib import *
-from matplotlib import cm
-import matplotlib.ticker
-import  pylab as plt
-import seaborn
-import seaborn as sns
-import matplotlib.gridspec as GS
-
-#import ipywidgets as widgets
-
-from scipy import stats
-
-
-
-import IFP_generation as gen
-
-
-from sklearn import linear_model
-from sklearn import preprocessing
-from sklearn.cluster import KMeans
-
+import matplotlib.pyplot as plt
+#import seaborn as sns
+#import IFP_generation as gen
 
 def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_name=None) -> pd.DataFrame:
     """    
