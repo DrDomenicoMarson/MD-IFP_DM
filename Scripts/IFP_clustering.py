@@ -420,17 +420,17 @@ def Map_3D_grid(df_tot_to_save,filename):
     GRID_PRINT(filename,grid,grid_origin,grid_dim,grid_step)
     return
 
-def Plot_COM(df, out_name=""):
+def plot_cluster_info(df, out_name=""):
     """
     plotting average COM (x, y, and z separately)
     and the number of water molecules in the ligand solvation shell
     in each clusters    
     """
     labels_list = np.unique(df["label"].values)
-    list_properties = ["COM_x", "COM_y", "COM_z", "RGyr"]
+    list_properties = ["COM_x", "COM_y", "COM_z", "RGyr", "RMSDl"]
     if "WAT" in df.columns.values:
         list_properties += ["WAT"]
-        
+
     pos_means = []
     pos_stds = []
     for j in range(0, len(list_properties)):
@@ -443,16 +443,17 @@ def Plot_COM(df, out_name=""):
             pos_means[j].append(dd[c].mean())
             pos_stds[j].append(dd[c].std())
 
-    fig, axes = plt.subplots(2, 3)
+    fig, axes = plt.subplots(2, 3, figsize=(16, 6))
     colors = ["blue", "green", "red", "k", "orange", "cyan"]
 
-    for pos_mean, pos_std, color, label, ax in zip(pos_means, pos_stds, colors, list_properties, axes.flatten()):
+    for pos_mean, pos_std, color, label, ax in zip(
+        pos_means, pos_stds, colors, list_properties, axes.flatten()):
         ax.scatter(x=labels_list, y=pos_mean, color=color, label=label)
-        ax.errorbar(x=labels_list,y=pos_mean, yerr=pos_std, color="gray", fmt='o--', markersize=1)
+        ax.errorbar(x=labels_list,y=pos_mean, yerr=pos_std, color="gray", fmt='--', markersize=1, linewidth=0.7)
         ax.set_title(label)
         ax.set_xlabel('cluster #')
-        ax.set_ylabel(label)
-        ax.grid(color='gray', linestyle='-', linewidth=0.2)
+        #ax.set_ylabel(label)
+        ax.grid(color='gray', linestyle='-', linewidth=0.1, alpha=0.1)
 
     fig.tight_layout()
     if out_name:
@@ -460,7 +461,6 @@ def Plot_COM(df, out_name=""):
     else:
         fig.show()
     plt.close(fig)
-    return
 
 
 

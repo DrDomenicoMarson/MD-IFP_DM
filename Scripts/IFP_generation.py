@@ -691,7 +691,7 @@ def read_IFP(list_IFP):
         unpickled_df["COM_x"] = COM_x
         unpickled_df["COM_y"] = COM_y
         unpickled_df["COM_z"] = COM_z
-    
+
     return(unpickled_df)
 
 
