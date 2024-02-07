@@ -695,71 +695,54 @@ def read_IFP(list_IFP):
     return(unpickled_df)
 
 
-########################################
-#
-#     PLOT IFP  and ligand water shell for a trajectory
-#
-########################################
-def Plot_IFP(
-        df, contact_collection=None, out_name="",
-        ifp_list = ["HY","AR","HD","HA","HL","IP","IN","WB","LIP"]):
-    """
-    Parameters:
-    df- IFP database
-    contact_collection - set of IFP to be shown
-    
-    Returns:
-    """
- #   color = ['r','b','forestgreen','lime','m','c','teal','orange','yellow','goldenrod','olive','tomato','salmon','seagreen']
+def Plot_IFP(df, ifp_list, out_name=""):
     top = cm.get_cmap('Oranges_r', 128)
     bottom = cm.get_cmap('Blues', 128)
     color = np.vstack((top(np.linspace(0, 1, 128)),
                        bottom(np.linspace(0, 1, 128))))
     columns_IFP = []  # standard IFP
-    columns_CONT = []  # just contacts
+    columns_RE = []  # just contacts
     for c in df.columns.tolist():
-        if c[0:2] in ifp_list:
+        if c[0:2]=="RE":
+            columns_RE.append(c)
+        elif c[0:2] in ifp_list:
             columns_IFP.append(c)
-        elif c[0:2]  == "RE":
-            columns_CONT.append(c)
 
-    df1 = df[columns_IFP].values
-    if df1.shape[0] < 2: return
-    fig = plt.figure(figsize=(16, 6))
-    gs = gridspec.GridSpec(1, 3, width_ratios=[4, 2, 1]) 
-    ax = plt.subplot(gs[0])
+    if df[columns_IFP].values.shape[0] < 2:
+        return
 
-    ax =  plt.subplot(gs[0])
-    ax.set_title('IFP')
-    xticklabels = columns_IFP
-    if len(columns_IFP) < 25:  sns.heatmap(np.float32(df1), cmap="YlGnBu", xticklabels=xticklabels)
-    else:  sns.heatmap(np.float32(df1), cmap="YlGnBu")
-    ax.set_title('IFP')
+    fig, (ax_ifp, ax_re, ax_wat) = plt.subplots(
+        1, 3, figsize=(16, 6), gridspec_kw={'width_ratios': [4, 2, 1]})
 
-    if( df[columns_CONT].shape[1] > 0):
-        ax = plt.subplot(gs[1])
-        ax.set_title('RE')
-        df1 = df[columns_CONT].values
-        sns.heatmap(np.float32(df1), cmap="YlGnBu")
-        ax.set_title('Contacts')
+    ax_ifp.set_title('IFP')
+    ax_re.set_title('RE')
+    ax_wat.set_title('Water shell')
 
-    if("WAT"  in df.columns.tolist()):
-        ax = plt.subplot(gs[2])
-        ax.set_ylim(0,max(df["WAT"].tolist()))
-        if ("Repl"  in df.columns.tolist()):
-            for i,r in  enumerate(np.unique(df.Repl.tolist())):
-                plt.plot(df[df.Repl == r]["WAT"], marker='o', linewidth = 0,color = color[i],label=r)
+    sns.heatmap(np.float32(df[columns_IFP].values),
+                cmap="YlGnBu",
+                xticklabels=columns_IFP if len(columns_IFP) < 25 else 'auto',
+                ax=ax_ifp)
+
+    if df[columns_RE].shape[1] > 0:
+        sns.heatmap(np.float32(df[columns_RE].values), cmap="YlGnBu", ax=ax_re)
+
+    if "WAT" in df.columns.tolist():
+        ax_wat.set_ylim(0, max(df["WAT"].tolist()))
+        if "Repl" in df.columns.tolist():
+            for i, r in enumerate(np.unique(df.Repl.tolist())):
+                ax_wat.plot(df[df.Repl==r]["WAT"],
+                            marker='o', markersize=1, linewidth=0, color=color[i], label=r)
             if np.unique(df.Repl.tolist()).shape[0] < 10:
-                plt.legend()
+                ax_wat.legend()
         else:
-            plt.plot(df["WAT"],'go')
-        ax.set_title('Water shell')
-        ax.set_xlabel('frame')
-        ax.set_ylabel('# of water molecules')
+            ax_wat.plot(df["WAT"], marker='o', linewidth=0, markersize=1)
+        ax_wat.set_xlabel('frame #')
+        ax_wat.set_ylabel('# of water molecules')
+
     if out_name == "":
         fig.show()
     else:
-        fig.savefig(out_name, dpi=300)
+        fig.savefig(out_name)
     plt.close(fig)
     return
 

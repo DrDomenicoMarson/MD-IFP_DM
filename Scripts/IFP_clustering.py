@@ -49,7 +49,7 @@ from sklearn import preprocessing
 from sklearn.cluster import KMeans
 
 
-def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5) -> pd.DataFrame:
+def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_name=None) -> pd.DataFrame:
     """    
     this function checks if there is a jump in the ligand position in  two neighbour frames,
     which may appear due to incomplete wrapping system back to the box (i.e. because of the PBC).  
@@ -109,7 +109,10 @@ def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5) -> pd.D
     ax_keep.set_title("Kept trajs")
     ax_disc.set_title("Discarded trajs")
     fig.tight_layout()
-    fig.savefig("rmsd_for_dissociation_detection.pdf")
+    if out_name is not None:
+        fig.savefig(out_name)
+    else:
+        fig.show()
     plt.close(fig)
     return df_new
 
