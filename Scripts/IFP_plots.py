@@ -53,7 +53,7 @@ def plot_graph(
     
     Returns
     ----------
-    cluster label sorted by increase of the average ligand RMSD in each cluster
+    the idx that would sort the cluster labels by increase of the average ligand RMSD in each cluster
     """
 
     print("Ploting the graph...")
