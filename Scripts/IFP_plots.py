@@ -3,6 +3,7 @@ import numpy as np
 #from matplotlib.patches import ArrowStyle
 #from matplotlib.patches import Ellipse
 from scipy.spatial import distance
+from loguru import logger
 
 import matplotlib.pyplot as plt
 #import seaborn as sns
@@ -56,12 +57,12 @@ def plot_graph(
     the idx that would sort the cluster labels by increase of the average ligand RMSD in each cluster
     """
 
-    print("Ploting the graph...")
+    logger.info("Ploting the graph...")
 
     df_ext_ligand = df_ext
     if ligand is not None and len(ligand) > 0:
         df_ext_ligand = df_ext[df_ext.ligand.isin(ligand)]
-        print("Edges will be shown for one ligand:", ligand)
+        logger.info(f"Edges will be shown for ligand: {ligand}")
 
     label_rmsd = []
     label_com = []
@@ -78,10 +79,10 @@ def plot_graph(
         current_set = df_ext[df_ext.label == l]
         label_rmsd.append(current_set.RMSDl.mean())
         label_com.append(current_set.COM.mean(axis=0))
-        print(f"cluster {l}:")
-        print(f"   STD of COM: {current_set.COM_x.std():.3f} {current_set.COM_y.std():.3f} {current_set.COM_z.std():.3f}")
-        print(f"  STD of RMSD: {current_set.RMSDl.std():.3f}")
-        print(f"        Water: {label_water}")
+        logger.info(f"cluster {l}:")
+        logger.info(f"   STD of COM: {current_set.COM_x.std():.3f} {current_set.COM_y.std():.3f} {current_set.COM_z.std():.3f}")
+        logger.info(f"  STD of RMSD: {current_set.RMSDl.std():.3f}")
+        logger.info(f"        Water: {label_water}")
 
         label_size.append(100*current_set.shape[0]/df_ext.shape[0])
         if water:
@@ -107,9 +108,9 @@ def plot_graph(
 
     relative_dist_from_min_rmsd = get_relative_distance_from_min_rmsd()
 
-    print(f"Index of cluster with min lRMSD: {idx_com_with_min_rmsd} (lRMSD {min(label_rmsd):.4f})")
-    print(f"    Relative distance (%) from the cluster with min(lRMSD): {relative_dist_from_min_rmsd}")
-    print(f"    sorted lRMSDs: {np.sort(label_rmsd)}")
+    logger.info(f"Index of cluster with min lRMSD: {idx_com_with_min_rmsd} (lRMSD {min(label_rmsd):.4f})")
+    logger.info(f"    Relative distance (%) from the cluster with min(lRMSD): {relative_dist_from_min_rmsd}")
+    logger.info(f"    sorted lRMSDs: {np.sort(label_rmsd)}")
 
     def plot_transition_density_and_flow():
         fig, axes = plt.subplots(1, 2)
@@ -276,7 +277,7 @@ def plot_graph(
                 s=500*np.asarray(label_size),
                 cmap='Oranges',
                 linewidths=np.asarray(label_water))
-            print("WATERS:", np.asarray(label_water))
+            logger.info(f"WATERS: {label_water}")
         else:
             ax.scatter(
                 label_x,

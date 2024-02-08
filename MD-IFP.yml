@@ -12,6 +12,7 @@ dependencies:
   - openpyxl
   - python>=3.8
   - ipython
+  - loguru
   # - jupyter
   # - jupyter_http_over_ws
   # - nglview

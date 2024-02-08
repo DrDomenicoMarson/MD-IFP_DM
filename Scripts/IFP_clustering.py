@@ -1,26 +1,11 @@
 #!/usr/bin/env python
-# coding: utf-8
-#
-#  Package for analysis of RAMD dissociation trajectories using Interaction Fingerprints 
-#
-#############################
-### v 1.0
-#
-#    Copyright (c) 2020
-#    Released under the EUPL Licence, v1.2 or any higher version
-#    
-### Author: Daria Kokh
-#    Daria.Kokh@h-its.org
-#    Heidelberg Institute of Theoretical Studies (HITS, www.h-its.org)
-#    Schloss-Wolfsbrunnenweg 35
-#    69118 Heidelberg, Germany
-################################# 
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 #import seaborn as sns
 #import IFP_generation as gen
+from loguru import logger
 
 def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_name=None) -> pd.DataFrame:
     """    
@@ -142,7 +127,7 @@ def standard_IFP(unpickled_dfs, ligands):
 ########################################################################
 
 def separate_IFP(columns):
-    print("separating IFP columns based on type, and sorting")
+    logger.info("separating IFP columns based on type, and sorting")
     res_list = []
     ifp_by_type = []
     res_name_list = []
@@ -165,8 +150,7 @@ def separate_IFP(columns):
             if col[0:2] == "RE":
                 ifp_by_type[ind][4] = 1
         else:
-            ...
-            #print(f"Column '{col}' skipped, no-IFP property")
+            logger.debug(f"Column '{col}' skipped, no-IFP property")
     ind_sorted = np.argsort(res_list)
     res_idx_sorted = np.array(res_list)[ind_sorted]  # NOTE: was .astype(str) in legacy
     res_name_sorted = np.array(res_name_list)[ind_sorted]
@@ -235,7 +219,6 @@ def unify_resi(list_resi, df,resi_list_sorted,list_l= [], threshold=3):
         comx = df_ligand[df_ligand.time == 0].COM_x.mean(axis=0)
         comy = df_ligand[df_ligand.time == 0].COM_y.mean(axis=0)
         comz = df_ligand[df_ligand.time == 0].COM_z.mean(axis=0)
-#        print(">>>>>>>>>>>>>>>>>>>>>>",comx,comy,comz)
         t = (df_ligand.COM_x-comx)*(df_ligand.COM_x-comx)+\
         (df_ligand.COM_y-comy)*(df_ligand.COM_y-comy)+(df_ligand.COM_z-comz)*(df_ligand.COM_z-comz)  
         if(threshold > 0):
@@ -456,7 +439,7 @@ def Print_IFP_averaged(df_tot,resi_list_sorted,ligandsi,resi_name_list_sorted,pr
     threshold = 0.01
 
 
-    for i,pr in enumerate(properties):
+    for i, pr in enumerate(properties):
         list_x = get_resn_list(df_tot.columns.tolist(),pr)
         ar_complete,ar_SD_complete=unify_resi(list_x,df_tot,resi_list_sorted,ligandsi)
         ind = np.argwhere(ar_complete.mean(axis=0) > threshold).flatten()
@@ -464,8 +447,8 @@ def Print_IFP_averaged(df_tot,resi_list_sorted,ligandsi,resi_name_list_sorted,pr
 
     index_no_zero_IFP = np.sort(np.unique(index_no_zero_IFP.astype(int)))
     part_resi =np.asarray(resi_name_list_sorted)[index_no_zero_IFP]
-    print(np.asarray(resi_name_list_sorted)[index_no_zero_IFP])
-    print(len(index_no_zero_IFP),len(resi_list_sorted))
+    logger.info(f"{np.asarray(resi_name_list_sorted)[index_no_zero_IFP]}")
+    logger.info(f"{len(index_no_zero_IFP), len(resi_list_sorted)}")
     ind_part_resi = []
     for pr in part_resi:
         t = np.argwhere(resi_name_list_sorted == pr)
@@ -481,8 +464,8 @@ def Print_IFP_averaged(df_tot,resi_list_sorted,ligandsi,resi_name_list_sorted,pr
 
     #ligands_group = exp[exp.type == 'D'].ligand.tolist()
     #ligands_name = exp[exp.type == 'D'].name.tolist()
-    print(ligands_group)
-    print(ligands_name)
+    logger.info(f"{ligands_group}")
+    logger.info(f"{ligands_name}")
 
     fig = plt.figure(figsize = (16, 2*len(ligands_group)),facecolor='w')
     fig.subplots_adjust(hspace=0.05, wspace=0.25)
