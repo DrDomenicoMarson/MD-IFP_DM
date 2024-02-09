@@ -95,7 +95,9 @@ def standard_IFP(unpickled_dfs, ligands):
     # add ligand names and make a joint list of columns
     columns = None
     for df, lig in zip(unpickled_dfs, ligands):
-        df["ligand"] = np.repeat(lig, df.shape[0])
+        df['ligand'] = pd.Series([lig for _ in range(df.shape[0])])
+
+        #df["ligand"] = np.repeat(lig, df.shape[0])
         if columns is None:
             columns = np.array(df.columns.tolist())
         else:
@@ -292,13 +294,12 @@ def read_databases(lst_of_pkl_files, lst_of_ligand_names):
     ligands - the list of ligands names
     
     """
-    unpickled_dfs, ligands = [], []
-    for lig_pkl, name in zip(lst_of_pkl_files, lst_of_ligand_names):
-        df_lig = pd.read_pickle(lig_pkl)
-        unpickled_dfs.append(df_lig)
+    dfs, ligands = [], []
+    for pkl_df, name in zip(lst_of_pkl_files, lst_of_ligand_names):
+        dfs.append(pd.read_pickle(pkl_df))
         ligands.append(name)
 
-    return standard_IFP(unpickled_dfs, ligands)
+    return standard_IFP(dfs, ligands)
 
 
 ##########################################################################
