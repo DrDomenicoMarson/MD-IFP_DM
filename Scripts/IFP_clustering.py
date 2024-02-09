@@ -78,53 +78,6 @@ def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_nam
 
 
 ########################################################################
-# reading IFP databases
-# Additionally column with ligand name is added
-# and COM column is splitted to COM_x, COM_y, COM_z
-########################################################################
-def standard_IFP(dfs, ligands):
-    """
-    reads IFP databases
-        column with ligand name is added
-        COM column is splitted to COM_x, COM_y, COM_z
-
-    returns:
-        combined IFP database
-    """
-
-    # add ligand names and make a joint list of columns
-    columns = None
-    for df, lig in zip(dfs, ligands):
-        df["ligand"] = lig
-        if columns is None:
-            columns = np.array(df.columns.tolist())
-        else:
-            diff = np.setdiff1d(np.asarray(df.columns.tolist()), columns)
-            columns = np.append(columns, diff)
-
-    # add empty columns for those that are present in the joint list but absent in the database
-    new_df = pd.DataFrame(columns=columns)
-    for df, lig in zip(dfs, ligands):
-        for ifp in columns:
-            if ifp not in df.columns.tolist():
-                df[ifp] = np.repeat(np.int8(0), df.shape[0])
-        new_df = pd.concat([new_df, df], axis=0, sort=False)
-
-    if "COM" in new_df.columns.tolist():
-        COM_x = []
-        COM_y = []
-        COM_z = []
-        for l in new_df.COM:
-            COM_x.append(l[0])
-            COM_y.append(l[1])
-            COM_z.append(l[2])
-        new_df["COM_x"] = COM_x
-        new_df["COM_y"] = COM_y
-        new_df["COM_z"] = COM_z
-
-    return new_df
-
-########################################################################
 # separate IFP by type
 ########################################################################
 
@@ -292,12 +245,41 @@ def read_databases(lst_of_pkl_files, lst_of_ligand_names):
     ligands - the list of ligands names
     
     """
-    dfs, ligands = [], []
-    for pkl_df, name in zip(lst_of_pkl_files, lst_of_ligand_names):
-        dfs.append(pd.read_pickle(pkl_df))
-        ligands.append(name)
+    dfs = []
+    columns = None
+    for pkl_df, ligand_name in zip(lst_of_pkl_files, lst_of_ligand_names):
+        df = pd.read_pickle(pkl_df)
+        df['ligand'] = ligand_name
+        dfs.append(df)
 
-    return standard_IFP(dfs, ligands)
+        if columns is None:
+            columns = np.array(df.columns.tolist())
+        else:
+            diff = np.setdiff1d(np.asarray(df.columns.tolist()), columns)
+            columns = np.append(columns, diff)
+
+
+    # add empty columns for those that are present in the joint list but absent in the database
+    new_df = pd.DataFrame(columns=columns)
+    for df in dfs:
+        for ifp in columns:
+            if ifp not in df.columns.tolist():
+                df[ifp] = 0
+        new_df = pd.concat([new_df, df], axis=0, sort=False)
+
+    if "COM" in new_df.columns.tolist():
+        COM_x = []
+        COM_y = []
+        COM_z = []
+        for l in new_df.COM:
+            COM_x.append(l[0])
+            COM_y.append(l[1])
+            COM_z.append(l[2])
+        new_df["COM_x"] = COM_x
+        new_df["COM_y"] = COM_y
+        new_df["COM_z"] = COM_z
+
+    return new_df
 
 
 ##########################################################################
