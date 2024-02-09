@@ -731,15 +731,15 @@ def Plot_IF_trajectory(df_tot, ifp_type, head_tail=-1, out_base_name=""):
         #n_hb = len(columns_HB[(df[columns_HB].mean()> 0.75).values])
 
         fig, ax = plt.subplots(1, 1)
-        ax.bar(range(
-            0, len(columns)), df[df.time < head_tail][columns].mean(), 
+        ax.bar(
+            range(0, len(columns)), df[df.time < head_tail][columns].mean(),
             alpha=0.6, label=f"mean over first {head_tail} frames")
         ax.bar(
             range(0, len(columns)), df[df.time > df.shape[0]-head_tail][columns].mean(),
             alpha=0.6, label=f"mean over last {head_tail} frames")
         ax.bar(
-            np.asarray(range(0, len(columns))), df[columns].mean(),
-            color="", label="mean over all frames", edgecolor ='k', hatch="/")
+            range(0, len(columns)), df[columns].mean(),
+            color="None", label="mean over all frames", edgecolor ='k', hatch="/")
 
         ax.set_xticks(range(0, len(columns)))
         ax.set_xticklabels(columns)
