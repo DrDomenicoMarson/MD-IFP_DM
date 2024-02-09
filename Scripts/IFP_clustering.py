@@ -43,9 +43,9 @@ def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_nam
 
                 # not quite understood, but usually not visited...
                 mm = -1
-                s = df_traj.sum(axis=1).values
-                if np.argwhere(s==0).flatten().shape[0] > 0:
-                    mm = np.argwhere(s==0).flatten()[0]
+                # s = df_traj.sum(axis=1).values
+                # if np.argwhere(s==0).flatten().shape[0] > 0:
+                #     mm = np.argwhere(s==0).flatten()[0]
 
                 if  mm > 0 or skip > 0:
                     if mm > 0 and skip > 0:
@@ -58,7 +58,9 @@ def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_nam
                     df_disc = df_traj[df_traj.time.astype(int) > mmr]
                     df_traj = df_traj[df_traj.time.astype(int) <= mmr]
                     ax_disc.plot(df_disc.time, df_disc.RMSDl, linewidth=0.2)
-                df_new = df_new.append(df_traj)
+                # df_new = df_new.append(df_traj)
+                df_new = pd.concat([df_new, df_traj])
+
                 ax_keep.plot(df_traj.time, df_traj.RMSDl, linewidth=0.2)
 
     for ax in [ax_keep, ax_disc]:
