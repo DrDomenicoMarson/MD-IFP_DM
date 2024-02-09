@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 #sns.set_context("paper", font_scale=0.6)
 
 def plot_graph(
-        df_ext, out_base_name="",
+        df_ext, out_base_name,
         ligand: list = None,
         draw_round = False,
         water = False):
@@ -175,13 +175,25 @@ def plot_graph(
     fig_number, ax_number = plt.subplots(1, 1)
     axes = [ax_flow, ax_number]
     figs = [fig_flow, fig_number]
+    if water:
+        fig_flow_wat, ax_flow_wat = plt.subplots(1, 1)
+        fig_number_wat, ax_number_wat = plt.subplots(1, 1)
+        axes_wat = [ax_flow_wat, ax_number_wat]
+        figs_wat = [fig_flow_wat, fig_number_wat]
+        logger.info(f"Number of water molecules in clusters: {label_water}")
+
+    else:
+        fig_flow_wat, ax_flow_wat = None, None
+        fig_number_wat, ax_number_wat = None, None
+        axes_wat = []
+        figs_wat = []
 
     if draw_round:
         alpha = 0.9*2*3.14*label_x/np.max(label_x)
         alpha_regular = 0.9*2*3.14*np.asarray(x_tick_pos)/max(x_tick_pos)
         label_y = np.sin(alpha)
         label_x = np.cos(alpha)
-        for ax in axes:
+        for ax in axes+axes_wat:
             ax.scatter(x=np.cos(alpha_regular), y=np.sin(alpha_regular), c='k', s=10)
             for l, p in zip(x_tick_label, x_tick_pos):
                 ax.annotate(
@@ -192,7 +204,7 @@ def plot_graph(
             ax.set_xlim(-1.3, 1.3)
             ax.set_ylim(-1.3, 1.3)
     else:
-        for ax in axes:
+        for ax in axes+axes_wat:
             ax.set_ylabel('Cluster #')
             ax.set_xlabel(r'RMSD [ $\mathrm{\AA}$ ]')
             # for matplotlib < 3.5, needed two calls,
@@ -205,95 +217,104 @@ def plot_graph(
     for l in range(0, label_x.shape[0]):
         for n in range(l+1, label_x.shape[0]):
             # total number of transitions in both directions
-
             a = n if label_rmsd[l] > label_rmsd[n] else l
             b = l if label_rmsd[l] > label_rmsd[n] else n
-
             xy = (label_x[b], label_y[b])
             xytext = (label_x[a], label_y[a])
             if edges[l, n] > 0:
                 if  draw_round is False or np.abs(label_rmsd[l] - label_rmsd[n]) > min(label_rmsd)/2:
-                    ax_number.annotate(
-                        "",
-                        xy = xy,
-                        xycoords = 'data',
-                        xytext = xytext,
-                        textcoords = 'data',
-                        size = edges[l, n]*500,
-                        arrowprops = dict(
-                            arrowstyle = "Fancy, head_length=0.2, head_width=0.4, tail_width=0.2",
-                            fc = "pink",
-                            ec = "none",
-                            alpha = 0.5,
-                            connectionstyle = "arc3, rad=-0.5"
+                    for ax in [ax_number, ax_number_wat]:
+                        if ax is None:
+                            continue
+                        ax.annotate(
+                            "",
+                            xy = xy,
+                            xycoords = 'data',
+                            xytext = xytext,
+                            textcoords = 'data',
+                            size = edges[l, n]*500,
+                            arrowprops = dict(
+                                arrowstyle = "Fancy, head_length=0.2, head_width=0.4, tail_width=0.2",
+                                fc = "pink",
+                                ec = "none",
+                                alpha = 0.5,
+                                connectionstyle = "arc3, rad=-0.5"
+                                )
                             )
-                        )
-                    ax_number.annotate(
-                        "",
-                        xy = xytext,
-                        xycoords = 'data',
-                        xytext = xy,
-                        textcoords = 'data',
-                        size = edges[l, n]*500,
-                        arrowprops = dict(
-                            arrowstyle = "Fancy, head_length=0.2, head_width=0.4, tail_width=0.2",
-                            fc = "purple",
-                            ec = "none",
-                            alpha = 0.5,
-                            connectionstyle = "arc3, rad=-0.5"
+                        ax.annotate(
+                            "",
+                            xy = xytext,
+                            xycoords = 'data',
+                            xytext = xy,
+                            textcoords = 'data',
+                            size = edges[l, n]*500,
+                            arrowprops = dict(
+                                arrowstyle = "Fancy, head_length=0.2, head_width=0.4, tail_width=0.2",
+                                fc = "purple",
+                                ec = "none",
+                                alpha = 0.5,
+                                connectionstyle = "arc3, rad=-0.5"
+                                )
                             )
-                        )
             flow = edges[l, n] - edges[n, l]  # flow l --> n
             a = l if flow > 0 else n
             b = n if flow > 0 else l
             xy = (label_x[b], label_y[b])
             xytext = (label_x[a], label_y[a])
-            ax_flow.annotate(
-                "",
-                xy = xy,
-                xycoords = 'data',
-                xytext = xytext,
-                textcoords = 'data',
-                size = np.abs(flow)*1000,
-                arrowprops = dict(
-                    arrowstyle = "Simple, head_length=0.2, head_width=0.4, tail_width=0.2",
-                    fc = "0.8",
-                    ec = "none",
-                    alpha=0.8,
-                    connectionstyle = "arc3, rad=-0.5"
+            for ax in [ax_flow, ax_flow_wat]:
+                if ax is None:
+                    continue
+                ax.annotate(
+                    "",
+                    xy = xy,
+                    xycoords = 'data',
+                    xytext = xytext,
+                    textcoords = 'data',
+                    size = np.abs(flow)*1000,
+                    arrowprops = dict(
+                        arrowstyle = "Simple, head_length=0.2, head_width=0.4, tail_width=0.2",
+                        fc = "0.8",
+                        ec = "none",
+                        alpha=0.8,
+                        connectionstyle = "arc3, rad=-0.5"
+                        )
                     )
-                )
 
-    for ax in axes:
+    for ax in axes+axes_wat:
         for i, txt in enumerate(labels_list):
             ax.annotate(txt, (label_x[txt], label_y[txt]+0.05*pow(i,0.5)))
-        if water:
-            ax.scatter(
-                label_x,
-                label_y,
-                facecolors='none',
-                c=color_com,
-                edgecolors="lightskyblue",
-                s=500*np.asarray(label_size),
-                cmap='Oranges',
-                linewidths=np.asarray(label_water))
-            logger.info(f"WATERS: {label_water}")
-        else:
-            ax.scatter(
-                label_x,
-                label_y,
-                facecolors='none',
-                c=color_com,
-                edgecolors="k",
-                s=500*np.asarray(label_size),
-                cmap='Oranges')
+
+    for ax in axes_wat:
+        ax.scatter(
+            label_x,
+            label_y,
+            facecolors='none',
+            c=color_com,
+            edgecolors="lightskyblue",
+            s=500*np.asarray(label_size),
+            cmap='Oranges',
+            linewidths=np.asarray(label_water))
+    for ax in axes:
+        ax.scatter(
+            label_x,
+            label_y,
+            facecolors='none',
+            c=color_com,
+            edgecolors="k",
+            s=500*np.asarray(label_size),
+            cmap='Oranges')
+
+    for fig in figs+figs_wat:
+        fig.tight_layout()
+
 
     for fig, name in zip(figs, ["flow", "number"]):
-        fig.tight_layout()
-        if out_base_name != "":
-            fig.savefig(f"{out_base_name}.{name}.pdf")
-        else:
-            fig.show()
+        fig.savefig(f"{out_base_name}.{name}.pdf")
+
+    for fig, name in zip(figs_wat, ["flow", "number"]):
+        fig.savefig(f"{out_base_name}.{name}.with_wat.pdf")
+
+    for fig in figs+figs_wat:
         plt.close(fig)
 
     return np.argsort(label_rmsd)
