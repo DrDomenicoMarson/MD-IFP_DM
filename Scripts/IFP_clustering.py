@@ -82,7 +82,7 @@ def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_nam
 # Additionally column with ligand name is added
 # and COM column is splitted to COM_x, COM_y, COM_z
 ########################################################################
-def standard_IFP(unpickled_dfs, ligands):
+def standard_IFP(dfs, ligands):
     """
     reads IFP databases
         column with ligand name is added
@@ -94,10 +94,8 @@ def standard_IFP(unpickled_dfs, ligands):
 
     # add ligand names and make a joint list of columns
     columns = None
-    for df, lig in zip(unpickled_dfs, ligands):
-        df['ligand'] = pd.Series([lig for _ in range(df.shape[0])])
-
-        #df["ligand"] = np.repeat(lig, df.shape[0])
+    for df, lig in zip(dfs, ligands):
+        df["ligand"] = lig
         if columns is None:
             columns = np.array(df.columns.tolist())
         else:
@@ -105,26 +103,26 @@ def standard_IFP(unpickled_dfs, ligands):
             columns = np.append(columns, diff)
 
     # add empty columns for those that are present in the joint list but absent in the database
-    unpickled_df = pd.DataFrame(columns=columns)
-    for df, lig in zip(unpickled_dfs, ligands):
+    new_df = pd.DataFrame(columns=columns)
+    for df, lig in zip(dfs, ligands):
         for ifp in columns:
             if ifp not in df.columns.tolist():
                 df[ifp] = np.repeat(np.int8(0), df.shape[0])
-        unpickled_df = pd.concat([unpickled_df, df], axis=0, sort=False)
+        new_df = pd.concat([new_df, df], axis=0, sort=False)
 
-    if "COM" in unpickled_df.columns.tolist():
+    if "COM" in new_df.columns.tolist():
         COM_x = []
         COM_y = []
         COM_z = []
-        for l in unpickled_df.COM:
+        for l in new_df.COM:
             COM_x.append(l[0])
             COM_y.append(l[1])
             COM_z.append(l[2])
-        unpickled_df["COM_x"] = COM_x
-        unpickled_df["COM_y"] = COM_y
-        unpickled_df["COM_z"] = COM_z
+        new_df["COM_x"] = COM_x
+        new_df["COM_y"] = COM_y
+        new_df["COM_z"] = COM_z
 
-    return unpickled_df
+    return new_df
 
 ########################################################################
 # separate IFP by type
