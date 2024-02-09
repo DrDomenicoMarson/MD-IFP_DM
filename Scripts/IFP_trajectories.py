@@ -324,25 +324,25 @@ class trajectories:
             IFP_list = self.IFP_unify(subset)
             n_auxi = len(r_subset[0].rmsd_auxi)
             for i,(tr_c,n_replica) in enumerate(zip(r_subset,n_subset)):
-                    logger.info(f"# Replica: {i}, {n_replica}")
-                    tt = tr_c.df_properties
-                    tt["Repl"] = np.repeat(n_replica,tr_c.df_properties.shape[0]) 
-                    tt["Traj"] = np.repeat(str(i),tt.shape[0]) 
-                    tt["RMSDl"] = tr_c.rmsd_lig
-                    tt["RMSDp"] = tr_c.rmsd_prot
-                    tt["RGyr"] = tr_c.rgyr_lig
-                    tt["length"] = tr_c.length
-                    tt["COM"] = tr_c.com_lig
-                    
-                    for k in range(0,n_auxi):
-                         tt["Auxi_"+str(k)] = tr_c.rmsd_auxi[k]
-                    df1 = pd.concat([df1, tt])
+                logger.info(f"# Replica: {i}, {n_replica}")
+                tt = tr_c.df_properties
+                tt["Repl"] = np.repeat(n_replica,tr_c.df_properties.shape[0]) 
+                tt["Traj"] = np.repeat(str(i),tt.shape[0]) 
+                tt["RMSDl"] = tr_c.rmsd_lig
+                tt["RMSDp"] = tr_c.rmsd_prot
+                tt["RGyr"] = tr_c.rgyr_lig
+                tt["length"] = tr_c.length
+                tt["COM"] = tr_c.com_lig
+                
+                for k in range(0, n_auxi):
+                     tt["Auxi_"+str(k)] = tr_c.rmsd_auxi[k]
+                df1 = pd.concat([df1, tt])
             if  len(r_subset) > 0:
                 df1.to_pickle(file)
             else:
                 logger.info("No IFP for equilibration simulations were generated")
             sys.stdout.flush()
-            return(df1)
+            return df1
         
             
    #-----------------------------------------       
@@ -402,33 +402,28 @@ class trajectories:
 
             for tr_replica in r_subset:
                 for tr_c in tr_replica:
-                    try:  # this is in the case when for some trajectory IFPs were not generated for some reasons
-                        for c in tr_c.df_properties.columns.tolist():
-                            if c  in IFP_list:
-                                pass
-                            else:
-                                IFP_list.append(c)
-                    except:
-                        pass
+                    #try:  # this is in the case when for some trajectory IFPs were not generated for some reasons
+                    for c in tr_c.df_properties.columns.tolist():
+                        if c  in IFP_list:
+                            pass
+                        else:
+                            IFP_list.append(c)
+                    #except:
+                    #    pass
             for tr_replica in r_subset:
                 for tr_c in tr_replica:
-                    try:
-                        to_add = np.setdiff1d(IFP_list, np.asarray(tr_c.df_properties.columns.tolist()))
-                        for k in to_add:
-                            tr_c.df_properties[k] = np.zeros(tr_c.df_properties.shape[0],dtype=np.int8)
-                        tr_c.df_properties = tr_c.df_properties[np.concatenate((["time"],tr_c.df_properties.columns[tr_c.df_properties.columns != "time"].tolist()))]
-                        if "WAT" in tr_c.df_properties.columns.tolist():
-                            tr_c.df_properties = tr_c.df_properties[np.concatenate((tr_c.df_properties.columns[tr_c.df_properties.columns != "WAT"].tolist(),["WAT"]))]
-                    except:
-                        pass
+                    #try:
+                    to_add = np.setdiff1d(IFP_list, np.asarray(tr_c.df_properties.columns.tolist()))
+                    for k in to_add:
+                        tr_c.df_properties[k] = np.zeros(tr_c.df_properties.shape[0],dtype=np.int8)
+                    tr_c.df_properties = tr_c.df_properties[np.concatenate((["time"],tr_c.df_properties.columns[tr_c.df_properties.columns != "time"].tolist()))]
+                    if "WAT" in tr_c.df_properties.columns.tolist():
+                        tr_c.df_properties = tr_c.df_properties[np.concatenate((tr_c.df_properties.columns[tr_c.df_properties.columns != "WAT"].tolist(),["WAT"]))]
+                    #except:
+                    #    pass
             self.contact_collection = IFP_list
             return IFP_list
 
-        ###################################################################
-        #
-        # Save IFP for a selected replicas of RAMD simulations
-        #
-        ###################################################################
         def IFP_save(self, file, subset=None):
             """
             Parameters:
@@ -436,35 +431,38 @@ class trajectories:
             Results:
             """
             df1 = None
-            if subset is None: 
+            if subset is None:
                 r_subset = self.traj
                 n_subset = self.names
             else:
                 r_subset = np.take(self.traj,subset)
                 n_subset = np.take(self.names,subset)
             IFP_list = self.IFP_unify(subset)
-            logger.info(f"Will be saved: {self.names}")
 
             for tr_replica,tr_name in zip(r_subset,n_subset):
-                for i,tr_c in enumerate(tr_replica):
-                    try:
-                        tt = tr_c.df_properties
-                        tt["Repl"] = np.repeat(tr_name,tr_c.df_properties.shape[0]) 
-                        tt["Traj"] = np.repeat(str(i),tt.shape[0]) 
-                        tt["RMSDl"] = tr_c.rmsd_lig
-                        tt["RMSDp"] = tr_c.rmsd_prot
-                        tt["RGyr"] = tr_c.rgyr_lig
-                        tt["length"] = tr_c.length
-                        tt["COM"] = tr_c.com_lig
-                        for k in range(0, len(tr_c.rmsd_auxi)):
-                            rmsd_auxi = []
-                            logger.info(len(rmsd_auxi), len(tr_c.rmsd_lig), len(tr_c.rmsd_lig))
-                            tt["Auxi_"+str(k)] = tr_c.rmsd_auxi[k]
-                        df1 = pd.concat([df1, tt])
-                    except:
-                        logger.critical(f"failed to save properties for the replica {tr_name} since the trajectiry was not analyzed")
-                        pass
+                for i, tr_c in enumerate(tr_replica):
+                    #try:
+                    tt = tr_c.df_properties
+                    tt["Repl"] = tr_name
+                    tt["Traj"] = str(i)
+                    tt["RMSDl"] = tr_c.rmsd_lig
+                    tt["RMSDp"] = tr_c.rmsd_prot
+                    tt["RGyr"] = tr_c.rgyr_lig
+                    tt["length"] = tr_c.length
+                    tt["COM"] = tr_c.com_lig
+                    for k, rmsd_auxi in enumerate(tr_c.rmsd_auxi):
+                        #rmsd_auxi_ls = []
+                        #logger.info(len(rmsd_auxi_ls), len(tr_c.rmsd_lig), len(tr_c.rmsd_lig))
+                        # below, replacement for above nonsense with a lesser nonsense...
+                        logger.info(f"{rmsd_auxi=}, {len(tr_c.rmsd_lig)=}")
+                        tt["Auxi_"+str(k)] = rmsd_auxi
+                    df1 = pd.concat([df1, tt])
+                    #except:
+                    #    logger.critical(f"failed to save properties for the replica {tr_name} since the trajectiry was not analyzed")
             df1.to_pickle(file)
+
+            logger.info(f"Database saved to pickle file {file}")
+
             return df1
 
         ##############################################################
