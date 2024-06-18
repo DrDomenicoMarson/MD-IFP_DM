@@ -16,3 +16,6 @@ dependencies:
   # - jupyter
   # - jupyter_http_over_ws
   # - nglview
+
+# put this (adjusted) in the activate.d of the proper conda environment...
+# export PYTHONPATH=$PYTHONPATH:/opt/MD-IFP_DM/Scripts/
