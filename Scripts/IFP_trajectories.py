@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -454,7 +452,7 @@ class trajectories:
                         #rmsd_auxi_ls = []
                         #logger.info(len(rmsd_auxi_ls), len(tr_c.rmsd_lig), len(tr_c.rmsd_lig))
                         # below, replacement for above nonsense with a lesser nonsense...
-                        logger.info(f"{rmsd_auxi=}, {len(tr_c.rmsd_lig)=}")
+                        logger.info(f"rmsd_auxi={rmsd_auxi}, len(tr_c.rmsd_lig)={len(tr_c.rmsd_lig)}")
                         tt["Auxi_"+str(k)] = rmsd_auxi
                     df1 = pd.concat([df1, tt])
                     #except:

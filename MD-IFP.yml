@@ -3,6 +3,7 @@ channels:
   - conda-forge
   - rdkit
   - defaults
+  - ambermd
 dependencies:
   - pandas<2.0
   - seaborn
@@ -10,9 +11,10 @@ dependencies:
   - mdanalysis=1.1.1
   - numpy
   - openpyxl
-  - python>=3.8
+  - python>=3.7
   - ipython
   - loguru
+  - pytraj
   # - jupyter
   # - jupyter_http_over_ws
   # - nglview
