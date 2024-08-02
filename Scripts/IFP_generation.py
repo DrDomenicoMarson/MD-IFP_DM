@@ -8,8 +8,12 @@ from matplotlib import cm
 import seaborn as sns
 from loguru import logger
 
+from MDAnalysis import __version__ as mda_version
+IS_OLD_MDA = mda_version == "1.1.1"
 
-import MDAnalysis.analysis.hbonds as hb
+if IS_OLD_MDA: import MDAnalysis.analysis.hbonds as hb
+else: import MDAnalysis.analysis.hydrogenbonds.hbond_analysis as hb
+
 from MDAnalysis.lib.distances import calc_angles
 
 #import MDAnalysis as mda
@@ -265,7 +269,7 @@ def make_IFT_table(IFP_prop_list,snaps, columns_extended=None):
 #     FUNCTION for generation of interaction fingerprints (IFP) in a trajectory
 #
 #######################################################################
-def IFP(u_mem,sel_ligands,property_list, WB_analysis = True, RE = True,Lipids = [],WB_debug = False):
+def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=None, WB_debug=False):
     """
     Parameters:
     u - trajectory - universe object
@@ -275,29 +279,40 @@ def IFP(u_mem,sel_ligands,property_list, WB_analysis = True, RE = True,Lipids = 
     Reterns:
     """
 
+    Lipids = [] if Lipids is None else Lipids
+
     #---------------------------------------------------------------
     #- find hydrogen bonds between ptotein and ligand
-    donor_list = []
 
-    hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_DONORS['CHARMM27']
-    hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
-    hb.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_DONORS['CHARMM27']
-    hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
-    if "Donor" in set(property_list):
-        donor_line = tuple(set(property_list["Donor"]))
-        hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF']+donor_line
-        hb.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF']+donor_line
-    if "Acceptor" in set(property_list):      
-        acceptor_line = tuple(set(property_list["Acceptor"]))
-        hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF']+acceptor_line
-        hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF']+acceptor_line
+    if IS_OLD_MDA:
+        hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_DONORS['CHARMM27']
+        hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
+        hb.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_DONORS['CHARMM27']
+        hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
+        if "Donor" in set(property_list):
+            donor_line = tuple(set(property_list["Donor"]))
+            hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF']+donor_line
+            hb.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF']+donor_line
+        if "Acceptor" in set(property_list):      
+            acceptor_line = tuple(set(property_list["Acceptor"]))
+            hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF']+acceptor_line
+            hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF']+acceptor_line
 
-    h = hb.HydrogenBondAnalysis(u_mem,
-                                selection1 = f'resname {sel_ligands}',
-                                selection2 = f'not resname WAT HOH SOL {sel_ligands}',
-                                distance=3.3, angle=100, forcefield='OtherFF')
+        h = hb.HydrogenBondAnalysis(u_mem,
+                                    selection1 = f'resname {sel_ligands}',
+                                    selection2 = f'not resname WAT HOH SOL {sel_ligands}',
+                                    distance=3.3, angle=100, forcefield='OtherFF')
+    else:
+        h = hb.HydrogenBondAnalysis(u_mem,
+                                    between = [f'resname {sel_ligands}', f'not resname WAT HOH SOL {sel_ligands}'],
+                                    d_a_cutoff=3.3, d_h_a_angle_cutoff=100)
+
     logger.info(f"Start HB analysis at {datetime.datetime.now().time()}")
     h.run()
+
+    print(h.results)
+    exit()
+
     h.generate_table()
     df_HB = pd.DataFrame.from_records(h.table)
 

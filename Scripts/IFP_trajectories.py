@@ -25,8 +25,12 @@ from rdkit import RDConfig
 #from rdkit.Chem import Draw
 
 import MDAnalysis as mda
+
+from MDAnalysis import __version__ as mda_version
+IS_OLD_MDA = mda_version == "1.1.1"
+
 #from MDAnalysis.lib.formats.libdcd import DCDFile
-from MDAnalysis.analysis import contacts,align,rms
+from MDAnalysis.analysis import contacts, align,rms
 from MDAnalysis.analysis.base import AnalysisFromFunction
 from MDAnalysis.coordinates.memory import MemoryReader
 
@@ -659,7 +663,7 @@ class trajectories:
     #
     ###############################################################
 
-    def analysis_traj(self,traj,start_analysis,step_analysis,WB_analysis,RE,Lipids,auxi_selection=None, reference = "ref"):
+    def analysis_traj(self, traj, start_analysis, step_analysis, WB_analysis, RE, Lipids, auxi_selection=None, reference="ref"):
         """
         Parameters:
         step_analysis - step to be used to scan over the trajectory
@@ -680,8 +684,8 @@ class trajectories:
         u_length - total number of fraimes in the trajectory
         """
         auxi_selection = [] if auxi_selection is None else auxi_selection
+
         sel_ligands = self.ligand.ligands_names[0]
-  #      sel_l = "resname "+sel_ligands
         rmsd_prot = []
         rmsd_lig = []
         rgyr_prot = []
@@ -698,7 +702,6 @@ class trajectories:
 
         if reference=="ref":
             ref = mda.Universe(self.PRJ_DIR+self.pdb)
-#            Rgr0 = ref.select_atoms("protein").radius_of_gyration()
         else:
             u.trajectory[0]
             ref = u
@@ -725,29 +728,33 @@ class trajectories:
         else:
             selection = f"{self.sub_system} or (resname  {sel_ligands})"
 
-        selection_rmsd = ["protein and (not type H)","resname "+sel_ligands+" and (not type H)"]
+        selection_rmsd = ["protein and (not type H)","resname " + sel_ligands + " and (not type H)"]
         auxi_rmsd = []
         for auxi in auxi_selection:
+            # NOTE: this was found like that, it's a bit strange, the else path shoud not work,
+            # but in my use-cases I never reached this code-path, so... 
+            logger.warning("GOING THROUGH A NOT-TESTED CODE-PATH WITH POSSIBLE ERRORS, WATCH OUT!")
             if len(auxi) > 2:  # this is a check if a single string or a list of strings is given
-                selection = selection + " or "+auxi
+                selection = selection + " or " + auxi
                 auxi_rmsd.append([])
                 selection_rmsd.append(auxi)
             else:
-                selection = selection + " or "+auxi_selection
+                selection = selection + " or " + auxi_selection
                 auxi_rmsd.append([])
                 selection_rmsd.append(auxi)
                 break
 
-
         system_reduced = u.select_atoms(selection)
         logger.info(f"selected sub-system: {selection}")
-        # try:
-        u_mem = mda.Merge(system_reduced).load_new(AnalysisFromFunction(lambda ag: ag.positions.copy(), system_reduced).run(start=start, stop=stop, step=step).results, format=MemoryReader)
-        #past_the_rest = False
-        # except:
-        #     logger.warning("Failed to read this trajectory")
-        #     past_the_rest = True
-        #     pass
+
+        copy_pos = AnalysisFromFunction(lambda ag: ag.positions.copy(), system_reduced)
+        copy_pos.run(start=start, stop=stop, step=step)
+        if IS_OLD_MDA:
+            copy_pos_results = copy_pos.results
+        else:
+            copy_pos_results = copy_pos.results.timeseries
+        u_mem = mda.Merge(system_reduced).load_new(copy_pos_results, format=MemoryReader)
+
         protein = u_mem.select_atoms("protein")
         ligand = u_mem.select_atoms(f"resname {sel_ligands}")
         #if not past_the_rest:
@@ -843,7 +850,14 @@ class trajectories:
     #  function that analyze all NAMD trajectories for a particular compound 
     #
     ###############################################################
-    def analysis_all_ramd(self,WB_analysis = True,step_analysis=1,start_analysis=0,repl_list= [],RE = True,Lipids = [],auxi_selection = []):
+    def analysis_all_ramd(self,
+                          WB_analysis=True,
+                          step_analysis=1,
+                          start_analysis=0,
+                          repl_list= None,
+                          RE = True,
+                          Lipids = None,
+                          auxi_selection = None):
         """
         Parameters:
         step_analysis - step to be used to scan over the trajectory
@@ -852,7 +866,10 @@ class trajectories:
         repl_list - a list of replica numbers (indexes from a complete replica list) to be analyzed 
         Results:
         """
-
+        if repl_list is None: repl_list = []
+        if Lipids is None: Lipids = []
+        if auxi_selection is None: auxi_selection = []
+    
         sel_ligands = self.ligand.ligands_names[0]
         sel_l = "resname "+self.ligand.ligands_names[0]
 
@@ -873,12 +890,14 @@ class trajectories:
             if len(self.ramd.traj) < 1:
                 logger.error("RAMD trajectories must be loaded first using the function ramd.scan_ramd() (trajectory class function)")
                 sys.exit()
- 
+
             for j2, repli in enumerate(repl):
                 logger.info(f"traj {j2}, file {repli}")
                 step = max(step_analysis, 1)
                 #try:
-                length,start,rmsd_prot,rmsd_lig, rmsd_auxi,rgyr_prot, rgyr_lig,com_lig,df_prop,df_HB,df_WB = self.analysis_traj(repli,start_analysis,step,WB_analysis,RE,Lipids,auxi_selection)
+                length, start, rmsd_prot, rmsd_lig, rmsd_auxi, rgyr_prot, rgyr_lig, com_lig, df_prop, df_HB, df_WB = self.analysis_traj(
+                    repli, start_analysis, step, WB_analysis, RE, Lipids, auxi_selection)
+
                 df_prop_complete = table_combine(df_HB,df_WB,df_prop,sel_ligands,self.ramd.contact_collection)
                 self.namd.length.append((self.timestep/1000)*length)
                 Plot_traj(rmsd_prot, rmsd_lig, rmsd_auxi, rgyr_prot, rgyr_lig, rmd, out_name=None)
@@ -890,7 +909,7 @@ class trajectories:
                 self.ramd.traj[j1][j2].start = start
                 self.ramd.traj[j1][j2].stop = length
                 self.ramd.traj[j1][j2].length = length
-            
+
                 self.ramd.traj[j1][j2].df_properties = df_prop_complete
                 self.ramd.traj[j1][j2].rmsd_prot = rmsd_prot
                 self.ramd.traj[j1][j2].rmsd_lig = rmsd_lig
@@ -898,7 +917,6 @@ class trajectories:
                 self.ramd.traj[j1][j2].rgyr_lig = rgyr_lig
                 self.ramd.traj[j1][j2].com_lig = com_lig
                 self.ramd.traj[j1][j2].rmsd_auxi = rmsd_auxi
-                # Plot_IFP(df_prop_complete,out_name="") #"ramd-"+str(j2)+".png")
                 #except:
                 #    logger.error("IFP either were not generated or could not be stored in the traj object!")
                 #    raise exc
