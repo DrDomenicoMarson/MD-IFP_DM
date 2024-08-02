@@ -144,8 +144,8 @@ class trajectories:
                 
         """
 
-        if pdb is None and top is None:
-            raise ValueError("Need to provide at least a pdb or topology file")
+        if pdb is None:
+            raise ValueError("Need to provide at least a pdb reference file")
 
         if not os.path.isdir(PRJ_DIR):
             PRJ_DIR = os.getcwd()
