@@ -314,7 +314,7 @@ def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=Non
     else:
         h = hb.HydrogenBondAnalysis(u_mem,
                                     between = [f'resname {sel_ligands}', f'not resname WAT HOH SOL {sel_ligands}'],
-                                    d_h_cutoff=1.35, d_a_cutoff=3.4, d_h_a_angle_cutoff=100)
+                                    d_h_cutoff=1.35, d_a_cutoff=3.35, d_h_a_angle_cutoff=100)
         h.hydrogens_sel = h.guess_hydrogens(max_mass=3.025, min_charge=0.2) # to account for H-mass repartition
         h.donors_sel = h.guess_donors(max_charge=-0.3)
         h.acceptors_sel = h.guess_acceptors()
