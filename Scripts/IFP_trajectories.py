@@ -121,12 +121,18 @@ class trajectories:
                     contact_collection - a complete list of contact residues  
 
     """
-    
-       
-    #========================================================    
-    def __init__(self,PRJ_DIR = "./",namd_tmpl= "NAMD*", ramd_tmpl= "RAMD*", pdb = "ref.pdb", 
-                ligand_pdb = None,ligand_mol2 = None,\
-                ramd_traj_tmpl = "*dcd",namd_traj_tmpl = "*dcd",timestep=1):
+
+    def __init__(self,
+                 PRJ_DIR,
+                 namd_tmpl="NAMD*",
+                 ramd_tmpl="RAMD*",
+                 pdb=None,
+                 top=None,
+                 ligand_pdb=None,
+                 ligand_mol2 = None,
+                 ramd_traj_tmpl="*dcd",
+                 namd_traj_tmpl="*dcd",
+                 timestep=1):
         """
         Class constructor:
         
@@ -137,26 +143,29 @@ class trajectories:
         timestep - timestep used to save MD frames in ps
                 
         """
-        #---------  check/make directory to work in -----------
-#                try:  
-#                    os.mkdir(PRJ_DIR)
-#                except OSError:  
-#                    print ("Creation of the directory %s failed" % PRJ_DIR)
-#                else:  
-#                    print ("Data generated will be located at %s " % PRJ_DIR)
+
+        if pdb is None and top is None:
+            raise ValueError("Need to provide at least a pdb or topology file")
 
         if not os.path.isdir(PRJ_DIR):
             PRJ_DIR = os.getcwd()
         if PRJ_DIR[-1] != "/":
-            PRJ_DIR = PRJ_DIR+"/"
-        self.PRJ_DIR = PRJ_DIR
+            PRJ_DIR = PRJ_DIR + "/"
+        self.prj_dir = str(PRJ_DIR)
 
-        #------------ check ref structure --------------
-        if not os.path.isfile(PRJ_DIR+pdb):
-            logger.error(f"file {PRJ_DIR+pdb} was not found ")
-            return
+
+        if pdb is not None and not os.path.isfile(self.prj_dir + pdb):
+            msg = f"file {self.prj_dir + pdb} was not found"
+            logger.error(msg)
+            raise FileNotFoundError(msg)
+
+        if top is not None and not os.path.isfile(self.prj_dir + top):
+            msg = f"file {self.prj_dir + top} was not found"
+            logger.error(msg)
+            raise FileNotFoundError(msg)
 
         self.pdb = pdb
+        self.top = top
         self.ramd_traj_tmpl ="/"+ramd_traj_tmpl
         self.namd_traj_tmpl = "/"+namd_traj_tmpl
         self.ramd_tmpl ="/"+ramd_tmpl
@@ -166,19 +175,23 @@ class trajectories:
 
         try:
             self.ligand = Ligand(PRJ_DIR, ligand_pdb, ligand_mol2)
-            u = mda.Universe(self.PRJ_DIR+self.pdb)
+            if self.top is not None and self.pdb is not None:
+                u = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
+            elif self.pdb is not None:
+                u = mda.Universe(self.prj_dir + self.pdb)
+            else:
+                raise ValueError("No pdb (and/or topology) file provided")
             lig_atoms = u.select_atoms(f'resname {self.ligand.ligands_names[0]}')
             logger.info(f"Ligand {self.ligand.ligands_names[0]} found in the trajectory with {len(lig_atoms)} atoms")
             for atom in lig_atoms:
                 logger.debug(atom)
-
         except mda.exceptions.SelectionError as exc:
             logger.exception(f"Selection error with this ligand name: {self.ligand.ligands_names[0]}")
             raise exc
 
         #self.ligand = self.createLigand(PRJ_DIR,ligand_pdb,ligand_mol2)
         self.namd = self.createNamd() 
-        self.ramd = self.createRamd(PRJ_DIR,pdb,timestep) 
+        self.ramd = self.createRamd(PRJ_DIR,pdb,top,timestep)
         self.tau_exp = None
         self.tau_exp_SD = None
         self.type = None
@@ -366,7 +379,7 @@ class trajectories:
                 replicas_SD = []
                 contact_collection - a complete list of contact residues  
         """
-        def __init__(self,PRJ_DIR,pdb,timestep):
+        def __init__(self, PRJ_DIR, pdb=None, top=None, timestep=1):
             #---   # array of replica parameters- each is array of trajectories
             self.repl_traj = [] #  directories with RAMD simulations for all replicas 
             self.names = [] # name of  replicas 
@@ -378,8 +391,9 @@ class trajectories:
             self.replicas_SD = []
             self.tau = None  # computed res.time
             self.tau_SD = None
-            self.PRJ_DIR = PRJ_DIR
+            self.prj_dir = PRJ_DIR
             self.pdb = pdb
+            self.top = top
             self.timestep = timestep
             # the next set of parameters will be filled by the analysis_all_namd() function
             self.traj = []   # an array of Trj_Properties objects for wach trajectory in a replica
@@ -506,10 +520,15 @@ class trajectories:
             """
             #--- read exp data-----------
 
-            u = mda.Universe(self.PRJ_DIR+self.pdb)
+            if self.top is not None and self.pdb is not None:
+                u = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
+            elif self.pdb is not None:
+                u = mda.Universe(self.prj_dir + self.pdb)
+            else:
+                raise ValueError("No pdb (and/or topology) file provided")
             sd_max = 0
 
-            for i,(rmd,repl) in enumerate(zip(self.names,self.repl_traj)): # loop over all replicas
+            for i, (rmd, repl) in enumerate(zip(self.names,self.repl_traj)): # loop over all replicas
                 ramd_l = []
                 traj_properties = []
                 for j,t in enumerate(repl):  # loop over trajectories in each replica
@@ -617,15 +636,15 @@ class trajectories:
     #
     ###############################################################
 
-    def createLigand(self,PRJ_DIR,ligand_pdb,ligand_mol2):
-        return Ligand(PRJ_DIR,ligand_pdb,ligand_mol2)
+    def createLigand(self, PRJ_DIR, ligand_pdb, ligand_mol2):
+        return Ligand(PRJ_DIR, ligand_pdb, ligand_mol2)
 #       return (trajectories.Ligand(PRJ_DIR,ligand_pdb,ligand_mol2))
 
     def createNamd(self):
         return trajectories.Namd()
 
-    def createRamd(self,PRJ_DIR,pdb,timestep):
-        return trajectories.Ramd(PRJ_DIR,pdb,timestep)
+    def createRamd(self, PRJ_DIR, pdb, top, timestep):
+        return trajectories.Ramd(PRJ_DIR, pdb, top, timestep)
 
     # ##############################################################
     # #
@@ -646,7 +665,7 @@ class trajectories:
     #     u_length - total number of fraimes in the trajectory
     #     """
     #     sel_ligands = self.ligand.ligands_names[0]
-    #     ref = mda.Universe(self.PRJ_DIR+self.pdb)
+    #     ref = mda.Universe(self.prj_dir+self.pdb)
     #     Rgr0 = ref.select_atoms("protein").radius_of_gyration() 
     #     all_atoms = ref.select_atoms("not type H")
     #     zmin = 100
@@ -692,16 +711,27 @@ class trajectories:
         rgyr_lig = []
         com_lig = []
         df_prop = None
-        df_HB = None 
+        df_HB = None
         df_WB = None
-        u = mda.Universe(self.PRJ_DIR+self.pdb)
+
+        if self.top is not None and self.pdb is not None:
+            u = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
+        elif self.pdb is not None:
+            u = mda.Universe(self.prj_dir + self.pdb)
+        else:
+            raise ValueError("No pdb (and/or topology) file provided")
         u.load_new(traj)
         u_length = len(u.trajectory)
         u_size = os.path.getsize(traj)/(1024.*1024.)
         logger.info(f"   total number of frames = {u_length}; file size {u_size:.1f} M")
 
         if reference=="ref":
-            ref = mda.Universe(self.PRJ_DIR+self.pdb)
+            if self.top is not None and self.pdb is not None:
+                ref = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
+            elif self.pdb is not None:
+                ref = mda.Universe(self.prj_dir + self.pdb)
+            else:
+                raise ValueError("No pdb (and/or topology) file provided")
         else:
             u.trajectory[0]
             ref = u
@@ -814,7 +844,13 @@ class trajectories:
         sel_l = "resname "+self.ligand.ligands_names[0]
 #        mol,ligand_2D = read_ligands(dir_ligand+"/"+ligand_pdb)
 
-        ref = mda.Universe(self.PRJ_DIR+self.pdb)
+        if self.top is not None and self.pdb is not None:
+            ref = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
+        elif self.pdb is not None:
+            ref = mda.Universe(self.prj_dir + self.pdb)
+        else:
+            raise ValueError("No pdb (and/or topology) file provided")
+
         Rgr0 = ref.select_atoms("protein").radius_of_gyration()
         for j, (nmd, repl) in enumerate(zip(self.namd.names, self.namd.repl_traj)):
             logger.info(f"Replica: {repl}")
@@ -866,15 +902,22 @@ class trajectories:
         repl_list - a list of replica numbers (indexes from a complete replica list) to be analyzed 
         Results:
         """
-        if repl_list is None: repl_list = []
-        if Lipids is None: Lipids = []
-        if auxi_selection is None: auxi_selection = []
-    
+        repl_list = [] if repl_list is None else repl_list
+        Lipids = [] if Lipids is None else Lipids
+        auxi_selection = [] if auxi_selection is None else auxi_selection
+
         sel_ligands = self.ligand.ligands_names[0]
         sel_l = "resname "+self.ligand.ligands_names[0]
 
-        ref = mda.Universe(self.PRJ_DIR+self.pdb)
-        Rgr0 = ref.select_atoms("protein").radius_of_gyration()  
+
+        if self.top is not None and self.pdb is not None:
+            ref = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
+        elif self.pdb is not None:
+            ref = mda.Universe(self.prj_dir + self.pdb)
+        else:
+            raise ValueError("Need a pdb or top+pdb file(s) in input for reference")
+        
+        Rgr0 = ref.select_atoms("protein").radius_of_gyration()
 
         if len(repl_list) > 0 : repl_scan =  repl_list
         else:    repl_scan = range(0,len(self.ramd.repl_traj))
