@@ -8,6 +8,7 @@ from matplotlib import cm
 import seaborn as sns
 from loguru import logger
 
+import MDAnalysis as mda
 from MDAnalysis import __version__ as mda_version
 IS_OLD_MDA = mda_version == "1.1.1"
 
@@ -286,6 +287,8 @@ def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=Non
     #- find hydrogen bonds between ptotein and ligand
 
     if IS_OLD_MDA:
+        print("DEFAULT_DONORS:", hb.HydrogenBondAnalysis.DEFAULT_DONORS['CHARMM27'])
+        print("DEFAULT_ACCEPTORS:", hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['CHARMM27'])
         logger.debug("Computing HBONDS with old MDA, based on CHARMM27 naming")
         hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_DONORS['CHARMM27']
         hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
@@ -293,15 +296,17 @@ def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=Non
         hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
         if "Donor" in set(property_list):
             donor_line = tuple(set(property_list["Donor"]))
-            logger.debug(f"Adding ''' {donor_line} ''' to DEFAULT_DONORS")
+            logger.debug(f"Adding {donor_line} to DEFAULT_DONORS")
             hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF']+donor_line
             hb.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF']+donor_line
         if "Acceptor" in set(property_list):
             acceptor_line = tuple(set(property_list["Acceptor"]))
-            logger.debug(f"Adding ''' {acceptor_line} ''' to DEFAULT_ACCEPTORS")
+            logger.debug(f"Adding {acceptor_line} to DEFAULT_ACCEPTORS")
             hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF']+acceptor_line
             hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hb.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF']+acceptor_line
 
+        print(hb.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'])
+        print(hb.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'])
         h = hb.HydrogenBondAnalysis(u_mem,
                                     selection1 = f'resname {sel_ligands}',
                                     selection2 = f'not resname WAT HOH SOL {sel_ligands}',
@@ -309,18 +314,86 @@ def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=Non
     else:
         h = hb.HydrogenBondAnalysis(u_mem,
                                     between = [f'resname {sel_ligands}', f'not resname WAT HOH SOL {sel_ligands}'],
-                                    d_a_cutoff=3.3, d_h_a_angle_cutoff=100)
+                                    d_h_cutoff=1.35, d_a_cutoff=3.4, d_h_a_angle_cutoff=100)
+        h.hydrogens_sel = h.guess_hydrogens(max_mass=3.025, min_charge=0.2) # to account for H-mass repartition
+        h.donors_sel = h.guess_donors(max_charge=-0.3)
+        h.acceptors_sel = h.guess_acceptors()
+
+        # upa = u_mem.select_atoms("resname UPA")
+        # for atom in upa.atoms:
+        #     print(atom.name, atom.charge)
+
+        # DEFAULT_DONORS = ('NH2', 'NZ', 'OG', 'NH1', 'N', 'NE', 'OG1', 'NE1', 'OH', 'NE2', 'ND1', 'SG', 'ND2', 'OH2', 'OW')
+        # DEFAULT_ACCEPTORS = ('OD1', 'OD2', 'OG', 'OC2', 'SD', 'OG1', 'OH', 'NE2', 'OH2', 'OC1', 'ND1', 'SG', 'OE2', 'OE1', 'O', 'OW')
+
+        # if "Donor" in set(property_list):
+        #     donor_line = tuple(set(property_list["Donor"]))
+        #     logger.debug(f"Adding {donor_line} to DEFAULT_DONORS")
+        #     DEFAULT_DONORS += donor_line
+        # if "Acceptor" in set(property_list):
+        #     acceptor_line = tuple(set(property_list["Acceptor"]))
+        #     logger.debug(f"Adding {acceptor_line} to DEFAULT_ACCEPTORS")
+        #     DEFAULT_ACCEPTORS += acceptor_line
+
+
+        # donors_sel = "name "
+        # for name in DEFAULT_DONORS[:-1]:
+        #     donors_sel += name + " or name "
+        # donors_sel += DEFAULT_DONORS[-1]
+
+        # acceptor_sel = "name "
+        # for name in DEFAULT_ACCEPTORS[:-1]:
+        #     acceptor_sel += name + " or name "
+        # acceptor_sel += DEFAULT_ACCEPTORS[-1]
+
+        # h = hb.HydrogenBondAnalysis(u_mem,
+        #                             between = [f'resname {sel_ligands}', f'not resname WAT HOH SOL {sel_ligands}'],
+        #                             d_h_cutoff=1.5, d_a_cutoff=3.5, d_h_a_angle_cutoff=100,
+        #                             donors_sel=donors_sel, acceptors_sel=acceptor_sel)
+
+        # h.hydrogens_sel = h.guess_hydrogens(max_mass=3.025, min_charge=0.2) # to account for H-mass repartition
+
+        print("\nhydrogens_sel: ", h.hydrogens_sel)
+        print("\ndonors_sel: ", h.donors_sel)
+        print("\nacceptors_sel: ", h.acceptors_sel)
+    # print(u_mem)
+    # hydrogens = u_mem.select_atoms("name H*")
+    # for val in hydrogens.atoms.masses: print(val)
 
     logger.info(f"Start HB analysis at {datetime.datetime.now().time()}")
     h.run()
+    logger.info(f"         ... done at {datetime.datetime.now().time()}")
 
     if IS_OLD_MDA:
         logger.debug("Generating table from HB results")
         h.generate_table()
         df_HB = pd.DataFrame.from_records(h.table)
-        print(h.table)
+        print(df_HB)
     else:
-        print(h.results)
+        print(h.results.hbonds.shape)
+        atoms: mda.AtomGroup = u_mem.atoms
+        hb_table = []
+        for hbresults in h.results.hbonds:
+            time = float(hbresults[0])
+            hydrogen_index = int(hbresults[2])
+            acceptor_index = int(hbresults[3])
+            distance = float(hbresults[4])
+            angle = float(hbresults[5])
+            hydrogen = atoms[hydrogen_index]
+            acceptor = atoms[acceptor_index]
+            hb_table.append([
+                time, hydrogen_index, acceptor_index,
+                hydrogen.resname, hydrogen.resid, hydrogen.name,
+                acceptor.resname, acceptor.resid, acceptor.name,
+                distance, angle
+            ])
+        df_HB = pd.DataFrame(hb_table, columns=[
+            'time', 'donor_index', 'acceptor_index',
+            'donor_resnm', 'donor_resid', 'donor_atom',
+            'acceptor_resnm', 'acceptor_resid', 'acceptor_atom',
+            'distance', 'angle'])
+
+        print(df_HB)
     exit()
 
     #---------------------------------------------------------------
@@ -340,7 +413,7 @@ def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=Non
             ############### test ele1_index	sele2_index	sele1_resnm	sele1_resid	sele1_atom	sele2_resnm	sele2_resid	sele2_atom
 #        except:
 #            print("Water bridge analysis failed ")
-        
+
     #---------------------------------------------------------------
     #------ find all other contacts--------
     logger.info(f"Start collecting IFPs: {datetime.datetime.now().time()}")
@@ -470,7 +543,7 @@ def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=Non
 # in one table
 #
 ####################################################################################################
-def table_combine(df_HB,df_WB,df_prop,ligand_name,residues_name = [],start=0,stop=None,step=1):
+def table_combine(df_HB, df_WB, df_prop, ligand_name, residues_name=None, start=0, stop=None, step=1):
     """
     Parameters:
     df_HB - H-bond table
@@ -481,33 +554,35 @@ def table_combine(df_HB,df_WB,df_prop,ligand_name,residues_name = [],start=0,sto
     Return:
     updated table
     """
+    residues_name = [] if residues_name is None else residues_name
     if stop :
         if len(range(start,stop,step)) != np.asarray(df_prop.shape[0]):
             stop = (df_prop.shape[0] -start)*step
     else:
         stop = df_prop.shape[0]
-        
-#---------------- extract hydrogen bonds between ligand and protein and add to IFP table----------        
+
+#---------------- extract hydrogen bonds between ligand and protein and add to IFP table----------
     columns_resname = []
-    df_prop["time"] =range(start,stop,step)
+    df_prop["time"] = range(start, stop, step)
     #------- list of the residues making donor-HB  with the  ligand, but not water
-    df_noWatD = df_HB[~df_HB.donor_resnm.isin([ligand_name,"WAT"])]  # protein donor
+    df_noWatD = df_HB[~df_HB.donor_resnm.isin([ligand_name, "WAT"])]  # protein donor
     df_noWatD = df_noWatD[df_noWatD.acceptor_resnm == ligand_name]   # protein donor and ligand acceprot
-    
+
     #------- list of the residues making acceptor-HB  with the  ligand , but not water
-    df_noWatA = df_HB[~df_HB.acceptor_resnm.isin([ligand_name,"WAT"])]  # protein acceptor
+    df_noWatA = df_HB[~df_HB.acceptor_resnm.isin([ligand_name, "WAT"])]  # protein acceptor
     df_noWatA = df_noWatA[df_noWatA.donor_resnm == ligand_name]  # protein acceptor and ligand donor
 
-    t_list = []    
+    t_list = []
     for t in df_HB.time.unique().tolist():
         raw = int(t)
         if not df_noWatD.empty:
             df_noWatD_t = df_noWatD[(df_noWatD.time == t)]
             if not df_noWatD_t.empty:
                 for d in df_noWatD_t.donor_resid.tolist():
-                    r = "HD_"+df_noWatD_t[df_noWatD_t.donor_resid == d].donor_resnm.tolist()[0]+str(d)
-                    if r not in columns_resname:  columns_resname.append(r)
-                    t_list.append((raw,r))
+                    r = "HD_" + df_noWatD_t[df_noWatD_t.donor_resid==d].donor_resnm.tolist()[0] + str(d)
+                    if r not in columns_resname:
+                        columns_resname.append(r)
+                    t_list.append((raw, r))
         if not df_noWatA.empty:
             df_noWatA_t = df_noWatA[(df_noWatA.time == t)]
             if not df_noWatA_t.empty:

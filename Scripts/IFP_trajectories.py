@@ -748,8 +748,8 @@ class trajectories:
         else:
             start = start_analysis
         if start > stop:
-            start = stop -1
-        step = max(1,step_analysis)
+            start = stop - 1
+        step = max(1, step_analysis)
         if len(Lipids) > 0:
             lipid_line = ""
             for l in Lipids:
@@ -758,7 +758,7 @@ class trajectories:
         else:
             selection = f"{self.sub_system} or (resname  {sel_ligands})"
 
-        selection_rmsd = ["protein and (not type H)","resname " + sel_ligands + " and (not type H)"]
+        selection_rmsd = ["protein and (not type H)", "resname " + sel_ligands + " and (not type H)"]
         auxi_rmsd = []
         for auxi in auxi_selection:
             # NOTE: this was found like that, it's a bit strange, the else path shoud not work,
@@ -790,7 +790,6 @@ class trajectories:
         #if not past_the_rest:
         logger.info(f"frames to be analyzed: {len(u_mem.trajectory)}")
         for frame, traj_frame in enumerate(u_mem.trajectory):
-            #assert frame == traj_frame.frame
             _ = u_mem.trajectory[frame]
             u_mem.dimensions = u.dimensions
             _ = pbc(u_mem, Rgr0)
@@ -855,7 +854,7 @@ class trajectories:
         for j, (nmd, repl) in enumerate(zip(self.namd.names, self.namd.repl_traj)):
             logger.info(f"Replica: {repl}")
             step = max(step_analysis, 1)
-            length, _start, rmsd_prot,rmsd_lig, rmsd_auxi,rgyr_prot, rgyr_lig, com_lig, df_prop, df_HB, df_WB = self.analysis_traj(repl,start_analysis,step,WB_analysis, RE,Lipids,auxi_selection,reference ="ref")
+            length, _start, rmsd_prot,rmsd_lig, rmsd_auxi,rgyr_prot, rgyr_lig, com_lig, df_prop, df_HB, df_WB = self.analysis_traj(repl, start_analysis, step, WB_analysis, RE, Lipids, auxi_selection, reference ="ref")
             df_prop_complete = table_combine(df_HB, df_WB, df_prop, sel_ligands, self.namd.contact_collection)
             self.namd.length.append((self.timestep/1000)*length)
             Plot_traj(rmsd_prot, rmsd_lig, rmsd_auxi, rgyr_prot, rgyr_lig, nmd, out_name=None)
@@ -869,7 +868,7 @@ class trajectories:
             self.namd.traj[j].start = start_analysis
             self.namd.traj[j].stop = length
             self.namd.traj[j].length = length
-            self.namd.traj[j].df_properties=df_prop_complete
+            self.namd.traj[j].df_properties = df_prop_complete
             self.namd.traj[j].rmsd_prot = rmsd_prot
             self.namd.traj[j].rmsd_lig = rmsd_lig
             self.namd.traj[j].rgyr_prot = rgyr_prot
@@ -880,7 +879,7 @@ class trajectories:
  #           if(j > 0): print("....",j-1,self.namd.traj[j-1].rmsd_auxi[0][:3])
             #Plot_IFP(df_prop_complete,out_name="") # "namd-"+str(j)+".png")
         return
-    
+
     ##############################################################
     #
     #  function that analyze all NAMD trajectories for a particular compound 
