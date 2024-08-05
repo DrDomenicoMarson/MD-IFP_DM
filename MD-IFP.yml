@@ -4,7 +4,7 @@ channels:
   - rdkit
   - defaults
 dependencies:
-  - pandas<2.0
+  - pandas
   - seaborn
   - rdkit
   - mdanalysis
