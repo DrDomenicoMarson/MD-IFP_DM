@@ -1,35 +1,15 @@
 #!/usr/bin/env python
 
+from dataclasses import dataclass
 import datetime
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import  matplotlib as mpl
-from matplotlib import cm
-import seaborn as sns
 from loguru import logger
 
-import MDAnalysis as mda
-from MDAnalysis import __version__ as mda_version
-IS_OLD_MDA = mda_version == "1.1.1"
-
-if IS_OLD_MDA:
-    import MDAnalysis.analysis.hbonds as hba
-    import MDAnalysis.analysis.hbonds as wba
-else:
-    import MDAnalysis.analysis.hydrogenbonds.hbond_analysis as hba
-    import MDAnalysis.analysis.hydrogenbonds.wbridge_analysis as wba
-
+import MDAnalysis.analysis.hbonds as hba
 from MDAnalysis.lib.distances import calc_angles
 
-#import MDAnalysis as mda
-#mda.core.flags['use_periodic_selections'] = True
-#mda.core.flags['use_KDTree_routines'] = False
 
-
-#################################at_negative####
-# thresholds:
-#####################################
 r_cat = 5 # cation-aromatic
 r_ari = 5.5  # pi-pi
 r_hyd = 4.0 # hydrophobic
@@ -37,7 +17,7 @@ r_sar = 4.5 # S-aromatic
 r_sal = 4.5 # salt bridge
 r_hal = 3.5 # halogen interactions
 r_wat = 3.5 # water shell
-r_dis = 5.0 # all protein-ligand contacts  
+r_dis = 5.0 # all protein-ligand contacts
 r_lip = 5.0 # specific residues (in particular, lipids)
 r_ion = 3.4  # salt bridges with ions
 
@@ -53,35 +33,27 @@ at_noH = "( not name H* )"
 
 angle_CHal_O = 150  # currently is not used
 
-resi_aromatic = ["HIS","HIE","HID","HI2","TYR","TRP","PHE"]
+resi_aromatic = ["HIS", "HIE", "HID", "HI2", "TYR", "TRP", "PHE"]
 
-#######################################################################
-#
-#      FUNCTION FOR computing of contact properties for a particular compound and interaction type
-#
-#######################################################################
-
+@dataclass
 class IFP_prop:
     """
     CLASS of the Interaction Fingerprint properties for particular type of the protein-ligand interection
     
     name - type of interaction
-    atoms -ligand atom of that belong to this type
+    atoms -ligand atom that belong to this type
     sel_a - string describing a selection of protein residues/atoms 
     sel_b - string describing a selection of ligand atoms 
     dist - distance to be used for analysis
     contacts - list of contact 
     """
-    def __init__(self,name,atoms,sel_a,sel_b,dist):
+    def __init__(self, name, atoms, sel_a, sel_b, dist):
         self.name = name
         self.atoms = atoms
         self.sel_a = sel_a
         self.sel_b = sel_b
         self.dist = dist
         self.contacts = []
-
-
-#------------------------
 
 def IFP_list(property_list, sel_ligands, RE=True, Lipids=None):
     """
@@ -90,130 +62,59 @@ def IFP_list(property_list, sel_ligands, RE=True, Lipids=None):
     sel_ligands - ligand residue name
     
     Returns:
-    a list of properties that can be then used to extract IFP from a snapshot
+    a list of properties that can be used to extract IFP from a snapshot
     """
-    Lipids = [] if Lipids is None else Lipids
+
     IFP_prop_list = []
-    #try:  # hydrophobic
-    line = ""
+
+    def add_to_IFP_prop_list(prop_key, name, r, sel_a):
+        line = ""
+        for l in tuple(set(property_list[prop_key])):
+            line += l + " "
+        IFP_prop_list.append(IFP_prop(
+            name=name, atoms=line, dist=r, sel_a=sel_a,
+            sel_b="((resname " + sel_ligands + ") and (name " + line + ") )"))
+
     if "Hydrophobe" in property_list.keys():
-        for l in tuple(set(property_list["Hydrophobe"])): line = line + l + " "
-        sel_a = at_hydrophob
-        sel_b = '((resname '+sel_ligands+") and (name "+line+") )"
-        IFP_prop_list.append(IFP_prop("HY",line,sel_a,sel_b,r_hyd))
-    # except:
-    #     logger.warning("HY failed")
-    #     pass
+        add_to_IFP_prop_list(prop_key="Hydrophobe", name="HY", r=r_hyd, sel_a=at_hydrophob)
 
-    #try:  #--- salt bridge with negatively-charged residues 
-    line = ""
     if "PosIonizable" in property_list.keys():
-        for l in tuple(set(property_list["PosIonizable"])): line = line + l +" "
-        sel_a = at_negative #"((resname ASP GLU) and (name OE* OD*)) "
-        sel_b = '((resname '+sel_ligands+") and (name "+line+") )"
-        IFP_prop_list.append(IFP_prop("IP",line,sel_a,sel_b,r_sal))
-    # except:
-    #     logger.warning("IP failed")
+        add_to_IFP_prop_list(prop_key="PosIonizable", name="IP", r=r_sal, sel_a=at_negative)
+        add_to_IFP_prop_list(prop_key="PosIonizable", name="AR", r=r_cat, sel_a=at_aromatic)
 
-    #try: #--- salt bridges with posetively charged residues  
-    line = ""
     if "NegIonizable" in property_list.keys():
-        for l in tuple(set(property_list["NegIonizable"])): line = line + l +" "
-        sel_a = at_positive # "((resname ARG LYS ) and (name NH* NZ)) or ((resname HI2 ) and (name HD HE))"
-        sel_b = '((resname '+sel_ligands+") and (name "+line+") )"
-        IFP_prop_list.append(IFP_prop("IN",line,sel_a,sel_b,r_sal))
-      #--- salt bridges with positively charged ions 
-        sel_a = at_pos_ions 
-        sel_b = '((resname '+sel_ligands+") and (name "+line+") )"
-        IFP_prop_list.append(IFP_prop("IO",line,sel_a,sel_b,r_ion))
-    #except:
-    #    logger.warning("IN failed")
+        add_to_IFP_prop_list(prop_key="NegIonizable", name="IN", r=r_sal, sel_a=at_positive)
+        add_to_IFP_prop_list(prop_key="NegIonizable", name="IO", r=r_ion, sel_a=at_pos_ions)
 
-    #try:  #--- cation-aril interactions and aromatic stacking
-    ### """
-    ### line = ""
-    ### if "PosIonizable" in property_list.keys():
-    ###     for l in tuple(set(property_list["PosIonizable"])): line = line + l +" "
-    ### if "Aromatic" in property_list.keys():  # pi-pi
-    ###     for l in np.asarray(property_list["Aromatic"]): line = line + l +" "
-    ### sel_b = '((resname '+sel_ligands+" ) and (name "+line+"))"
-    ### sel_a = at_aromatic    #"((resname PHE TRP TYR HI2 HIS HIE HID) and (name CZ* CD* CE* CG* CH* NE* ND*)) "   
-    ### if("PosIonizable" in property_list.keys()): 
-    ###     IFP_prop_list.append(IFP_prop("AR",line,sel_a,sel_b,r_cat))
-    ### if("Aromatic" in property_list.keys()):
-    ###     IFP_prop_list.append(IFP_prop("AR",line,sel_a,sel_b,r_ari))
-    ### """
-    line_p = ""
-    line_a = ""
-    sel_a = at_aromatic    #"((resname PHE TRP TYR HI2 HIS HIE HID) and (name CZ* CD* CE* CG* CH* NE* ND*)) "   
-    if "PosIonizable" in property_list.keys():
-        for l in tuple(set(property_list["PosIonizable"])):
-            line_p = line_p + l +" "
-        sel_b = '((resname '+sel_ligands+" ) and (name "+line_p+"))"
-        IFP_prop_list.append(IFP_prop("AR",line_p,sel_a,sel_b,r_cat))
-    if "Aromatic" in property_list.keys():  # pi-pi
-        for l in np.asarray(property_list["Aromatic"]):
-            line_a = line_a + l +" "
-        sel_b = '((resname '+sel_ligands+" ) and (name "+line_a+"))"
-        IFP_prop_list.append(IFP_prop("AR",line_a,sel_a,sel_b,r_ari))
-    #except:
-    #    logger.warning("AR1 failed")
-        
-    ### """
-    ### try: #--- S -aromatic 
-    ###     sel_b = '((resname '+sel_ligands+") and (type S ))"
-    ###     sel_a = at_aromatic #"((resname PHE TRP TYR HI2 HIS HIE HID) and (name CZ* CD* CE* CG* CH* NE* ND*)) "
-    ###     IFP_prop_list.append(IFP_prop("AR",line,sel_a,sel_b,r_sar))
-    ### except:
-    ###     print("AR2 failed")
-    ###     pass
-    ### """
-    # try: #--- aromatic ligand - cation , amide
-    line = ""
     if "Aromatic" in property_list.keys():
-        for l in np.asarray(property_list["Aromatic"]): line = line + l +" "
-        sel_b = '((resname '+sel_ligands+" ) and (name "+line+") )"
-        sel_a = at_positive # +" or "+at_sulfur #"((resname ARG LYS ) and (name NH* NZ*)) or (backbone and name H)  
-        IFP_prop_list.append(IFP_prop("AR",line,sel_a,sel_b,r_cat))
-    # except:
-    #     logger.warning("AR3 failed")
+        add_to_IFP_prop_list(prop_key="Aromatic", name="AR", r=r_ari, sel_a=at_aromatic)
+        add_to_IFP_prop_list(prop_key="Aromatic", name="AR", r=r_cat, sel_a=at_positive)
 
-    # try: #--- halogen bonds with atromatic, negatively charged or backbone carbonyl oxygen
-    sel_b = '((resname '+sel_ligands+" ) and "+at_halogens+" )"
-    sel_a = at_aromatic +" or "+at_negative+" or "+ " (backbone and name O) "+" or "+at_sulfur #((resname CYS MET) and (type S))"
-    IFP_prop_list.append(IFP_prop("HL","HL",sel_a,sel_b,r_hal))
-    # except:
-    #     logger.warning("HL failed")
+    sel_a = at_aromatic + " or " + at_negative + " or " + " (backbone and name O) " + " or " + at_sulfur
+    sel_b = "((resname " + sel_ligands + " ) and " + at_halogens + " )"
+    IFP_prop_list.append(IFP_prop(name="HL", atoms="HL", sel_a=sel_a, sel_b=sel_b, dist=r_hal))
 
-    # try: # water shell  
-    ## sel_a = "((sphzone 12.0 resname "+sel_ligands+") and (resname WAT and type O))"
     sel_a = " (resname WAT HOH SOL TIP3 and name O*) "
-    sel_b = '(resname '+sel_ligands+" ) and "+at_noH
-    IFP_prop_list.append(IFP_prop("WA","HE",sel_a,sel_b,r_wat))
-    # except:
-    #     logger.warning("WA failed")
+    sel_b = "(resname " + sel_ligands + " ) and " + at_noH
+    IFP_prop_list.append(IFP_prop(name="WA", atoms="HE", sel_a=sel_a, sel_b=sel_b, dist=r_wat))
 
     if RE:
-        #try: # any protein-ligand contacts 
         sel_a = "(not resname WAT HOH SOL TIP3) and (not name H*)"
-        sel_b = '(resname '+sel_ligands+" ) and "+at_noH
-        IFP_prop_list.append(IFP_prop("RE","HE",sel_a,sel_b,r_dis))
-        # except:
-        #     logger.warning("RE failed")
+        sel_b = "(resname " + sel_ligands + " ) and " + at_noH
+        IFP_prop_list.append(IFP_prop(name="RE", atoms="HE", sel_a=sel_a, sel_b=sel_b, dist=r_dis))
 
-    if len(Lipids) > 0:
-        #try: # any lipid-ligand contacts 
+    if Lipids is not None:
         line = ""
-        for l in Lipids: line = line + l +" "
-        sel_a = "((resname '+line+' ) and "+at_noH +") "
-        sel_b = '(resname '+sel_ligands+") and "+at_noH
-        IFP_prop_list.append(IFP_prop("LL",line,sel_a,sel_b,r_lip))
-        # except:
-        #     logger.warning("LL failed")
+        for l in Lipids:
+            line += l + " "
+        sel_a = "((resname " + line + " ) and " + at_noH + ") "
+        sel_b = "(resname " + sel_ligands + ") and " + at_noH
+        IFP_prop_list.append(IFP_prop(name="LL", atoms=line, sel_a=sel_a, sel_b=sel_b, dist=r_lip))
+
     return IFP_prop_list
 
 
-def make_IFT_table(IFP_prop_list,snaps, columns_extended=None):
+def make_IFT_table(IFP_prop_list, snaps, columns_extended=None):
     """
     Most of interections are taken from the list given in 
     https://www.cambridgemedchemconsulting.com/resources/molecular_interactions.html
@@ -270,12 +171,6 @@ def make_IFT_table(IFP_prop_list,snaps, columns_extended=None):
                 #    logger.warning(f"IFP was not found: {IFP_element}, {col}, {s[0]}")
     return columns, IFP_matrix
 
-    
- #######################################################################
-#
-#     FUNCTION for generation of interaction fingerprints (IFP) in a trajectory
-#
-#######################################################################
 def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=None, WB_debug=False):
     """
     Parameters:
@@ -291,132 +186,41 @@ def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=Non
     #---------------------------------------------------------------
     #- find hydrogen bonds between ptotein and ligand
 
-    if IS_OLD_MDA:
-        logger.debug("Computing HBONDS with old MDA, based on CHARMM27 naming")
-        hba.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] = hba.HydrogenBondAnalysis.DEFAULT_DONORS['CHARMM27']
-        hba.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hba.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
-        wba.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] = wba.WaterBridgeAnalysis.DEFAULT_DONORS['CHARMM27']
-        wba.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = wba.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
-        if "Donor" in set(property_list):
-            donor_line = tuple(set(property_list["Donor"]))
-            logger.debug(f"Adding {donor_line} to DEFAULT_DONORS")
-            hba.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] += donor_line
-            wba.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] += donor_line
-        if "Acceptor" in set(property_list):
-            acceptor_line = tuple(set(property_list["Acceptor"]))
-            logger.debug(f"Adding {acceptor_line} to DEFAULT_ACCEPTORS")
-            hba.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] += acceptor_line
-            wba.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] += acceptor_line
+    logger.debug("Computing HBONDS with old MDA, based on CHARMM27 naming")
+    hba.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] = hba.HydrogenBondAnalysis.DEFAULT_DONORS['CHARMM27']
+    hba.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hba.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
+    hba.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] = hba.WaterBridgeAnalysis.DEFAULT_DONORS['CHARMM27']
+    hba.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = hba.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
+    if "Donor" in set(property_list):
+        donor_line = tuple(set(property_list["Donor"]))
+        logger.debug(f"Adding {donor_line} to DEFAULT_DONORS")
+        hba.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'] += donor_line
+        hba.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] += donor_line
+    if "Acceptor" in set(property_list):
+        acceptor_line = tuple(set(property_list["Acceptor"]))
+        logger.debug(f"Adding {acceptor_line} to DEFAULT_ACCEPTORS")
+        hba.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'] += acceptor_line
+        hba.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] += acceptor_line
 
-        logger.debug("default donors: ", hba.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'])
-        logger.debug("default accepors: ", hba.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'])
-        h = hba.HydrogenBondAnalysis(u_mem,
-                                     selection1 = f'resname {sel_ligands}',
-                                     selection2 = f'not resname WAT HOH SOL {sel_ligands}',
-                                     distance=3.3, angle=100, forcefield='OtherFF')
-    else:
-        logger.debug("Computing HBONDS with new MDA (>2.0), with parameters adjusted to match the old selection as much as possible")
-        h = hba.HydrogenBondAnalysis(u_mem,
-                                    between = [f'resname {sel_ligands}', f'not resname WAT HOH SOL {sel_ligands}'],
-                                    d_h_cutoff=1.35, d_a_cutoff=3.35, d_h_a_angle_cutoff=100)
-        h.hydrogens_sel = h.guess_hydrogens(max_mass=3.025, min_charge=0.2) # to account for H-mass repartition
-        h.donors_sel = h.guess_donors(max_charge=-0.3)
-        h.acceptors_sel = h.guess_acceptors()
-
-        logger.debug("hydrogens_selection:\n", h.hydrogens_sel)
-        logger.debug("donors_selection:\n", h.donors_sel)
-        logger.debug("acceptors_selection:\n", h.acceptors_sel)
-
-        # upa = u_mem.select_atoms("resname UPA")
-        # for atom in upa.atoms:
-        #     print(atom.name, atom.charge)
-
-        # DEFAULT_DONORS = ('NH2', 'NZ', 'OG', 'NH1', 'N', 'NE', 'OG1', 'NE1', 'OH', 'NE2', 'ND1', 'SG', 'ND2', 'OH2', 'OW')
-        # DEFAULT_ACCEPTORS = ('OD1', 'OD2', 'OG', 'OC2', 'SD', 'OG1', 'OH', 'NE2', 'OH2', 'OC1', 'ND1', 'SG', 'OE2', 'OE1', 'O', 'OW')
-        # if "Donor" in set(property_list):
-        #     donor_line = tuple(set(property_list["Donor"]))
-        #     logger.debug(f"Adding {donor_line} to DEFAULT_DONORS")
-        #     DEFAULT_DONORS += donor_line
-        # if "Acceptor" in set(property_list):
-        #     acceptor_line = tuple(set(property_list["Acceptor"]))
-        #     logger.debug(f"Adding {acceptor_line} to DEFAULT_ACCEPTORS")
-        #     DEFAULT_ACCEPTORS += acceptor_line
-        # donors_sel = "name "
-        # for name in DEFAULT_DONORS[:-1]:
-        #     donors_sel += name + " or name "
-        # donors_sel += DEFAULT_DONORS[-1]
-        # acceptor_sel = "name "
-        # for name in DEFAULT_ACCEPTORS[:-1]:
-        #     acceptor_sel += name + " or name "
-        # acceptor_sel += DEFAULT_ACCEPTORS[-1]
-        # h = hb.HydrogenBondAnalysis(u_mem,
-        #                             between = [f'resname {sel_ligands}', f'not resname WAT HOH SOL {sel_ligands}'],
-        #                             d_h_cutoff=1.5, d_a_cutoff=3.5, d_h_a_angle_cutoff=100,
-        #                             donors_sel=donors_sel, acceptors_sel=acceptor_sel)
-        # h.hydrogens_sel = h.guess_hydrogens(max_mass=3.025, min_charge=0.2) # to account for H-mass repartition
+    logger.debug("default donors: ", hba.HydrogenBondAnalysis.DEFAULT_DONORS['OtherFF'])
+    logger.debug("default accepors: ", hba.HydrogenBondAnalysis.DEFAULT_ACCEPTORS['OtherFF'])
+    h = hba.HydrogenBondAnalysis(u_mem,
+                                 selection1 = f'resname {sel_ligands}',
+                                 selection2 = f'not resname WAT HOH SOL {sel_ligands}',
+                                 distance=3.3, angle=100, forcefield='OtherFF')
 
     logger.info(f"Start HB analysis at {datetime.datetime.now().time()}")
     h.run()
     logger.info(f"         ... done at {datetime.datetime.now().time()}")
 
-    if IS_OLD_MDA:
-        logger.debug("Generating table from HB results")
-        h.generate_table()
-        df_HB = pd.DataFrame.from_records(h.table)
-        logger.debug(df_HB)
-    else:
-        atoms: mda.AtomGroup = u_mem.atoms
-        hb_table = []
-        for hbresults in h.results.hbonds:
-            time = float(hbresults[0])
-            hydrogen_index = int(hbresults[2])
-            acceptor_index = int(hbresults[3])
-            distance = float(hbresults[4])
-            angle = float(hbresults[5])
-            hydrogen = atoms[hydrogen_index]
-            acceptor = atoms[acceptor_index]
-            hb_table.append([
-                time, hydrogen_index, acceptor_index,
-                hydrogen.resname, hydrogen.resid, hydrogen.name,
-                acceptor.resname, acceptor.resid, acceptor.name,
-                distance, angle
-            ])
-        df_HB = pd.DataFrame(hb_table, columns=[
-            'time', 'donor_index', 'acceptor_index',
-            'donor_resnm', 'donor_resid', 'donor_atom',
-            'acceptor_resnm', 'acceptor_resid', 'acceptor_atom',
-            'distance', 'angle'])
-        logger.debug("df from HB results") 
-        logger.debug(df_HB)
+    logger.debug("Generating table from HB results")
+    h.generate_table()
+    df_HB = pd.DataFrame.from_records(h.table)
+    logger.debug(df_HB)
 
     if WB_analysis :
         logger.info(f"Start WB analysis at {datetime.datetime.now().time()}")
-
-        if IS_OLD_MDA:
-            df_WB = Water_bridges(u_mem, sel_ligands,WB_debug)
-        else:
-            wba.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] = wba.WaterBridgeAnalysis.DEFAULT_DONORS['CHARMM27']
-            wba.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] = wba.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['CHARMM27']
-            #NOTE: this is needed to "match" the original results, but it's strange...
-            wba.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] += tuple(set("O"))
-            if "Donor" in set(property_list):
-                donor_line = tuple(set(property_list["Donor"]))
-                logger.debug(f"Adding {donor_line} to wba DEFAULT_DONORS")
-                wba.WaterBridgeAnalysis.DEFAULT_DONORS['OtherFF'] += donor_line
-            if "Acceptor" in set(property_list):
-                acceptor_line = tuple(set(property_list["Acceptor"]))
-                logger.debug(f"Adding {acceptor_line} to wba DEFAULT_ACCEPTORS")
-                wba.WaterBridgeAnalysis.DEFAULT_ACCEPTORS['OtherFF'] += acceptor_line
-
-            wb = wba.WaterBridgeAnalysis(u_mem,
-                                        selection1=f'resname {sel_ligands}',
-                                        selection2=f'not resname WAT HOH SOL {sel_ligands}',
-                                        water_selection="resname WAT HOH SOL",
-                                        forcefield="OtherFF", distance=3.3, angle=100)
-            wb.run()
-            wb_table = wb.generate_table()
-            df_WB = pd.DataFrame.from_records(wb_table)
-
+        df_WB = Water_bridges(u_mem, sel_ligands,WB_debug)
         logger.debug(df_WB)
     else:
         df_WB = None
@@ -503,14 +307,13 @@ def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=Non
                 # now we check if halogen atom is perpendicular to the aromatic residue
                 ### TOBE checked if this works!!!!!
                 # ====HAL=====================================
-                u_ar = []
-                _ = [u_ar.append(u.resid) for u in u_list if u.resname in resi_aromatic]
+                u_ar = [u.resid for u in u_list if u.resname in resi_aromatic]
                 if len(u_ar) > 0:
-                    ar_resid, ar_n = np.unique(u_ar,return_counts=True)
-                    if u.resid in ar_resid[ar_n > 4]:
-                        found.append([IFP_type.name+"_"+u.resname+str(u.resid),u.name])  
-#                    else: print("HL-aromatic contact found but will not be counted because it has less than 4 contacts with aromatic atoms:",ar_resid,ar_n)
-                 ### TOBE checked if this works!!!!!====HAL========================================
+                    ar_resid, ar_n = np.unique(u_ar, return_counts=True)
+                    for u in u_list:
+                        if u.resid in ar_resid[ar_n > 4]:
+                            found.append([IFP_type.name + "_" + u.resname + str(u.resid), u.name])
+                ### TOBE checked if this works!!!!!====HAL========================================
             else:
                 #print("HY/IP: ",IFP_type.name,len(u_list))
                 for u in u_list:
@@ -535,327 +338,6 @@ def IFP(u_mem, sel_ligands, property_list, WB_analysis=True, RE=True, Lipids=Non
     logger.critical("Something is wrong - IFP property list is empty")
     raise ValueError()
 
-####################################################################################################
-#
-# combine three tables
-#    - with protein-ligand hydrogen bonds
-#    - with protein-ligand water bridges
-#    - with other protein-ligand interaction properties(IFP)
-# in one table
-#
-####################################################################################################
-
-def table_combine(df_HB, df_WB, df_prop, ligand_name, residues_name=None, start=0, stop=None, step=1):
-    """
-    Parameters:
-    df_HB - H-bond table
-    df_prop - IFP table 
-    ligand_name      - ligand nale
-    residues_name a list of properties that (column names) that can be used to generate tables with the same column list
-    
-    Return:
-    updated table
-    """
-    residues_name = [] if residues_name is None else residues_name
-    if stop :
-        if len(range(start,stop,step)) != np.asarray(df_prop.shape[0]):
-            stop = (df_prop.shape[0] -start)*step
-    else:
-        stop = df_prop.shape[0]
-
-#---------------- extract hydrogen bonds between ligand and protein and add to IFP table----------
-    columns_resname = []
-    df_prop["time"] = range(start, stop, step)
-    #------- list of the residues making donor-HB  with the  ligand, but not water
-    df_noWatD = df_HB[~df_HB.donor_resnm.isin([ligand_name, "WAT"])]  # protein donor
-    df_noWatD = df_noWatD[df_noWatD.acceptor_resnm == ligand_name]   # protein donor and ligand acceprot
-
-    #------- list of the residues making acceptor-HB  with the  ligand , but not water
-    df_noWatA = df_HB[~df_HB.acceptor_resnm.isin([ligand_name, "WAT"])]  # protein acceptor
-    df_noWatA = df_noWatA[df_noWatA.donor_resnm == ligand_name]  # protein acceptor and ligand donor
-
-    t_list = []
-    for t in df_HB.time.unique().tolist():
-        raw = int(t)
-        if not df_noWatD.empty:
-            df_noWatD_t = df_noWatD[(df_noWatD.time == t)]
-            if not df_noWatD_t.empty:
-                for d in df_noWatD_t.donor_resid.tolist():
-                    r = "HD_" + df_noWatD_t[df_noWatD_t.donor_resid==d].donor_resnm.tolist()[0] + str(d)
-                    if r not in columns_resname:
-                        columns_resname.append(r)
-                    t_list.append((raw, r))
-        if not df_noWatA.empty:
-            df_noWatA_t = df_noWatA[(df_noWatA.time == t)]
-            if not df_noWatA_t.empty:
-                for d in df_noWatA_t.acceptor_resid.tolist():
-                    r = "HA_"+df_noWatA_t[df_noWatA_t.acceptor_resid == d].acceptor_resnm.tolist()[0]+str(d)
-                    if r not in columns_resname:  columns_resname.append(r)
-                    t_list.append((raw,r))
-    properties =  np.zeros((len(df_prop.index.values.tolist()),len(columns_resname)),dtype=np.int8)
-    for j, c in enumerate(np.sort(np.asarray(columns_resname))):
-        for cc in t_list:
-            if c==cc[1]:
-                properties[cc[0], j] = 1
-        df_prop[c] = properties[:, j]    
-
-
-#---------------- extract water bridges between ligand and protein and add to IFP table----------
-    if df_WB is not None:
-        # we have to check naming since it was changed in later version
-        new_df_WB_columns = []
-        info = True
-        #------ new version 16-12-2019
-        t_list = []
-        column_resi = []
-        # get a list of INH-WAT (sele1 - sele2)
-        df_WB_INH = df_WB[(df_WB.sele1_resnm.isin([ligand_name]) & df_WB.sele2_resnm.isin(["WAT","HOH","SOL","TIP3"]))]
-#        print(df_WB_INH)
-        # get a list of WAT-Prot (sele1 - sele2)
-        df_WB_Prot = df_WB[(~(df_WB.sele2_resnm.isin([ligand_name,"WAT","HOH","SOL","TIP3"])) & (df_WB.sele1_resnm.isin(["WAT","HOH","SOL","TIP3"])))]
-#        print(df_WB_Prot)
- #       df_WB_WAT = df_WB[((df_WB.sele2_resnm == "WAT") & (df_WB.sele1_resnm == "WAT"))]
-        for t in df_WB.time.unique().tolist():
-            raw = int(t)
-            df_WB_t = df_WB[df_WB.time == t]
-          #  df_WB_WAT_t = df_WB_WAT[df_WB_WAT.time == t]
-            df_WB_Prot_t = df_WB_Prot[df_WB_Prot.time == t]
-            df_WB_INH_t = df_WB_INH[df_WB_INH.time == t]
-            if ((not df_WB_Prot_t.empty) and (not df_WB_INH_t.empty)):
-                common_WAT = np.intersect1d(df_WB_INH_t.sele2_resid.values,df_WB_Prot_t.sele1_resid.values)
-                for r in np.unique(df_WB_Prot_t.sele2_resid.values):
-                    r1 = "WB_"+df_WB_Prot_t[df_WB_Prot_t.sele2_resid == r].sele2_resnm.values[0]+str(r)
-                    t_list.append((raw,r1))
-                    if r1 not in column_resi: 
-                        column_resi.append(r1)
-          #     print(int(t),"---> common WAT --->",common_WAT,"Prot: ",np.unique(df_WB_Prot_t.sele2_resid.values))
-        #------------------------------
-        properties =  np.zeros((len(df_prop.index.values.tolist()),len(column_resi)),dtype=np.int8)
-        for j,c in enumerate(column_resi):
-            for cc in t_list:
-                if c == cc[1]:
-                    properties[cc[0], j] = 1
-            df_prop[c] = properties[:,j]
-
-#-----------------------------------------------------------------
-    # add more columns for IFP provided as input but not found in the current
-    for rr in residues_name:
-        if rr not in df_prop.columns.tolist():
-            df_prop[rr] = 0
-
-#----------------------------------------------------------------        
-    # cleaning the table
-    # fist order residues by number
-    df_prop_order_new = []
-    for df_prop_order in df_prop.columns.tolist():
-        if df_prop_order.find("_") > 0:
-            df_prop_order_new.append(int(df_prop_order[df_prop_order.find("_")+4:]))
-        else: df_prop_order_new.append(0)
-    properties = np.asarray(df_prop.columns.tolist())[np.argsort(df_prop_order_new)]
-    # then use order of the properties HY - HD - HA - IP - IN
-    for i_df in range(1,len(properties)):
-        if (properties[i_df].find("_")> 0) and (properties[i_df-1].find("_")> 0):
-            if properties[i_df][properties[i_df].find("_"):] == properties[i_df-1][properties[i_df-1].find("_"):]:
-                properties[i_df-1:i_df+1] = np.sort(properties[i_df-1:i_df+1])
-    df_prop = df_prop[properties]
-    #--- change column position puttinhg time at the beginning and Water at the end---
-    df_prop = df_prop[np.concatenate((["time"], df_prop.columns[df_prop.columns != "time"].tolist()))]
-    if "WAT" in df_prop.columns.tolist():
-        df_prop = df_prop[np.concatenate((df_prop.columns[df_prop.columns != "WAT"].tolist(), ["WAT"]))]
-
-    return df_prop
-
-#########################################################################
-# Program for reading IFP databases
-# Additionally column with ligand name is added
-# and COM column is splitted to COM_x, COM_y, COM_z
-########################################################################
-def read_IFP(list_IFP):
-    """
-    Parameters:
-    dictionary of files with ITP databases {name1:file_path1[,name2:filepath2],...}
-    
-    Returns:
-    combined IFP database
-    """
-    unpickled_dfi = []
-    ligandsi = []
-    for lig in list_IFP:
-        unpickled_dfi.append(pd.read_pickle(list_IFP[lig]))
-        ligandsi.append(lig)
-
-    # add ligand names and make a joint list of columns
-    intersect = []
-    for (df,lig) in zip(unpickled_dfi,ligandsi):
-        df["ligand"] = np.repeat(lig,df.shape[0]) 
-        diff = np.setdiff1d(np.asarray(df.columns.tolist()),intersect)
-        if len(intersect) == 0:
-            intersect = diff
-        else: intersect = np.append(intersect,diff)
-
-    # add empty columns for those that are present in the joint list but absent in the database
-    unpickled_df = pd.DataFrame(columns=intersect) 
-    for df, lig in zip(unpickled_dfi, ligandsi):
-        for ifp in intersect:
-            if ifp not in df.columns.tolist():
-                df[ifp] = np.repeat(np.int8(0), df.shape[0])    
-        unpickled_df = pd.concat([unpickled_df, df], axis=0, sort=False)
-
-    # converge COM string to  x y z components
-    if "COM"  in unpickled_df.columns.tolist():
-        COM_x = []
-        COM_y = []
-        COM_z = []
-        for l in unpickled_df.COM:
-            COM_x.append(l[0])
-            COM_y.append(l[1])
-            COM_z.append(l[2])
-        unpickled_df["COM_x"] = COM_x
-        unpickled_df["COM_y"] = COM_y
-        unpickled_df["COM_z"] = COM_z
-
-    return unpickled_df
-
-def Plot_IFP(df, ifp_list, out_name=""):
-    top = cm.get_cmap('Oranges_r', 128)
-    bottom = cm.get_cmap('Blues', 128)
-    color = np.vstack((top(np.linspace(0, 1, 128)),
-                       bottom(np.linspace(0, 1, 128))))
-    columns_IFP = []  # standard IFP
-    columns_RE = []  # just contacts
-    for c in df.columns.tolist():
-        if c[0:2]=="RE":
-            columns_RE.append(c)
-        elif c[0:2] in ifp_list:
-            columns_IFP.append(c)
-
-    if df[columns_IFP].values.shape[0] < 2:
-        return
-
-
-
-    fig, axes = plt.subplots(1, 3, figsize=(16, 6), gridspec_kw={'width_ratios': [4, 2, 1]})
-
-    ax_ifp, ax_re, ax_wat = axes.flat
-
-    ax_ifp.set_title('IFP')
-    ax_re.set_title('RE')
-    ax_wat.set_title('Water shell')
-
-    sns.heatmap(np.float32(df[columns_IFP].values),
-                cmap="YlGnBu",
-                xticklabels=columns_IFP if len(columns_IFP) < 25 else 'auto',
-                ax=ax_ifp)
-
-    if df[columns_RE].shape[1] > 0:
-        sns.heatmap(np.float32(df[columns_RE].values), cmap="YlGnBu", ax=ax_re)
-
-    if "WAT" in df.columns.tolist():
-        ax_wat.set_ylim(0, max(df["WAT"].tolist()))
-        if "Repl" in df.columns.tolist():
-            for i, r in enumerate(np.unique(df.Repl.tolist())):
-                ax_wat.plot(df[df.Repl==r]["WAT"],
-                            marker='o', markersize=1, linewidth=0, color=color[i], label=r)
-            if np.unique(df.Repl.tolist()).shape[0] < 10:
-                ax_wat.legend()
-        else:
-            ax_wat.plot(df["WAT"], marker='o', linewidth=0, markersize=1)
-        ax_wat.set_xlabel('frame #')
-        ax_wat.set_ylabel('# of water molecules')
-
-    if out_name == "":
-        fig.show()
-    else:
-        fig.savefig(out_name)
-    plt.close(fig)
-    return
-
-
-###################################
-#
-##################################
-def extract_and_rank_by_resnum(df: pd.DataFrame, ifp_type) -> np.ndarray:
-    """    
-    old name was rank_IFP_resi
-    extracts and ranks by the residue number IFP list from the IFP table 
-    
-    arguments:
-      df - IFP df
-      ifp_type - list of IFP types to be considered
-    
-    return:
-      columns_IFP - list of IFP based on ift_type
-      columns_RE  - list of unspecific IFP
-    """
-
-    def add_to_numbers(number):
-        if c[3:].isdigit():
-            number.append(int(c[3:]))
-        elif c[4:].isdigit():
-            number.append(int(c[4:]))
-        elif c[5:].isdigit():
-            number.append(int(c[5:]))
-        else:
-            number.append(int(c[6:]))
-
-    columns_IFP, columns_RE = [], []
-    number_IFP, number_RE = [], []
-    for c in df.columns.tolist():
-        if c[0:2] == "RE":
-            columns_RE.append(c)
-            add_to_numbers(number_RE)
-        elif c[0:2] in ifp_type:
-            columns_IFP.append(c)
-            add_to_numbers(number_IFP)
-
-
-    columns_IFP = np.asarray(columns_IFP)[np.argsort(np.asarray(number_IFP))]
-    columns_RE = np.asarray(columns_RE)[np.argsort(np.asarray(number_RE))]
-    return columns_IFP, columns_RE
-
-
-def Plot_IF_trajectory(df_tot, ifp_type, head_tail=-1, out_base_name=""):
-    if head_tail < 0:
-        head_tail = int(df_tot.shape[0]/3)
-
-    columns_IFP, columns_RE = extract_and_rank_by_resnum(df_tot, ifp_type)
-
-    for columns, name in zip([columns_IFP, columns_RE], ["IFP", "RE"]):
-        if len(columns) == 0:
-            logger.info(f"contacts of type '{name}' not found")
-            continue
-        df = df_tot[columns]
-        columns = columns[df.mean().values > 0.01]
-        df = df_tot[np.append(columns, "time")]
-        #columns_HB = np.array([c for c in columns if (c[:2] == "HD" or c[:2] == "HA")])
-        #n_hb = len(columns_HB[(df[columns_HB].mean()> 0.75).values])
-
-        fig, ax = plt.subplots(1, 1)
-        ax.bar(
-            range(0, len(columns)), df[df.time < head_tail][columns].mean(),
-            alpha=0.6, label=f"mean over first {head_tail} frames")
-        ax.bar(
-            range(0, len(columns)), df[df.time > df.shape[0]-head_tail][columns].mean(),
-            alpha=0.6, label=f"mean over last {head_tail} frames")
-        ax.bar(
-            range(0, len(columns)), df[columns].mean(),
-            color="None", label="mean over all frames", edgecolor ='k', hatch="/")
-
-        ax.set_xticks(range(0, len(columns)))
-        ax.set_xticklabels(columns)
-        plt.setp(ax.get_xticklabels(), rotation=90, ha="right", rotation_mode="anchor", fontsize=4)
-        ax.legend(loc='upper left', fontsize=8)
-
-        if out_base_name != "":
-            fig.savefig(f"{out_base_name}.{name}.pdf")
-        else:
-            fig.show()
-        plt.close(fig)
-
-#############################################
-#   
-#
-############################################
 
 def Water_bridges(u_mem, sel_ligands, WB_debug=False):
     """
@@ -959,7 +441,7 @@ def Water_bridges(u_mem, sel_ligands, WB_debug=False):
                     wb2 = wb2[~(wb2.donor_index.isin(wb1[wb1["donor_resnm"].isin(["WAT", "HOH", "SOL","TIP3"])].donor_index))]
                     # exclude the cases where the same oxigen is an acceptor for both protein and ligand
                     wb2 = wb2[~(wb2.acceptor_index.isin(wb1[wb1["acceptor_resnm"].isin(["WAT", "HOH", "SOL","TIP3"])].acceptor_index))]
-                    wb12 =wb1.append(wb2)
+                    wb12 = wb1.append(wb2)
 # 5. check additionally angles
 # 5(a) make a list water molecules  that have H-bonds with a ligand
 #                    list_ld = wb12[wb12.acceptor_resnm ==  sel_ligands].donor_resid.values
@@ -1077,4 +559,3 @@ def Water_bridges(u_mem, sel_ligands, WB_debug=False):
                     df_WB = df_WB.append(WB_t)
  #   print(df_WB)
     return df_WB
-

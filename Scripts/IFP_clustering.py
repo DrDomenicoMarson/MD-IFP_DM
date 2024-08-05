@@ -3,8 +3,6 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-#import seaborn as sns
-#import IFP_generation as gen
 from loguru import logger
 
 def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_name=None) -> pd.DataFrame:
@@ -23,7 +21,10 @@ def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_nam
     df_new - new dataset
     """
     # remove trajectory part after dissociation
-    fig, (ax_keep, ax_disc) = plt.subplots(2, 1)
+    fig, axes = plt.subplots(2, 1)
+    assert isinstance(axes, np.ndarray)
+    ax_keep, ax_disc = axes.flat
+
     df_new = pd.DataFrame()
     for l in np.unique(df.ligand.values):
         df_lig = df[df.ligand==l]
@@ -34,6 +35,7 @@ def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_nam
                 rmsd = df_traj.RMSDl.values
                 com = df_traj.COM.values
                 skip = -1
+                r = 1
                 for r in range(1, rmsd.shape[0]):
                     dcom = np.linalg.norm(com[r]-com[r-1])
                     drmsd = rmsd[r]-rmsd[r-1]
@@ -58,9 +60,7 @@ def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_nam
                     df_disc = df_traj[df_traj.time.astype(int) > mmr]
                     df_traj = df_traj[df_traj.time.astype(int) <= mmr]
                     ax_disc.plot(df_disc.time, df_disc.RMSDl, linewidth=0.2)
-                # df_new = df_new.append(df_traj)
                 df_new = pd.concat([df_new, df_traj])
-
                 ax_keep.plot(df_traj.time, df_traj.RMSDl, linewidth=0.2)
 
     for ax in [ax_keep, ax_disc]:
@@ -76,10 +76,6 @@ def remove_dissociated_parts(df, max_rmsd=15, max_dcom=4.5, max_drmsd=5, out_nam
     plt.close(fig)
     return df_new
 
-
-########################################################################
-# separate IFP by type
-########################################################################
 
 def separate_IFP(columns):
     logger.info("separating IFP columns based on type, and sorting")
@@ -112,48 +108,8 @@ def separate_IFP(columns):
     ifp_by_type_sorted = np.array(ifp_by_type)[ind_sorted]  # NOTE: was not sorted in legacy
     return res_idx_sorted, res_name_sorted, ifp_by_type_sorted
 
-########################################################################
-#  deprecated, will be removed in the next version
-########################################################################
-def get_from_prop(list_x, df,list_l= [],threshold = 0.1):
-    """
-    This function extracts a su-set of the pkl file for the user-defined list of IFPs and generated its properies
-    Parameters:
-    list_x - list of IFPs to be analyzed
-    df,list_l= []
-    threshold = 0.1
-    
-    Returns:
-    ar - array of mean values
-    ar_SD - array of standard deviations
-    x - list of IFPs with mean below a pre-defined threshold
-    
-    """
-    if len(list_l) == 0:
-        list_l = np.unique(df.ligand.tolist())
-    ar = []
-    ar_SD = []
-    for ligand in np.unique(df.ligand.tolist()):
-        df_ligand = df[df.ligand == ligand]
-        if ligand in list_l:
-            ar_repl = []
-            for Repl in np.unique(df_ligand.Repl.tolist()):
-                df_ligand_Repl = df_ligand[df_ligand.Repl == Repl]
-                repl_mean = df_ligand_Repl[list_x].mean().values
-                ar_repl.append(repl_mean)
-            ar.append(np.mean(np.asarray(ar_repl),axis=0))
-            ar_SD.append(np.std(np.asarray(ar_repl),axis=0))
-    ar= np.asarray(ar)
-    ar_SD= np.asarray(ar_SD)
-    ind = np.where(np.mean(ar,axis=0)<threshold)
-    ar=np.delete(ar,ind,1)
-    ar_SD=np.delete(ar_SD,ind,1)
-    x = np.delete(list_x,ind)
-    return(ar,ar_SD,x)
 
-########################################################################
-########################################################################
-def unify_resi(list_resi, df,resi_list_sorted,list_l= [], threshold=3):
+def unify_resi(list_resi, df, resi_list_sorted, list_l=None, threshold=3):
     """
     Parameters:
     
@@ -165,8 +121,12 @@ def unify_resi(list_resi, df,resi_list_sorted,list_l= [], threshold=3):
     ar_complete
     ar_SD_complete
     """
+
+    list_l = [] if list_l is None else list_l
+
     if len(list_l) == 0:
         list_l = np.unique(df.ligand.tolist())
+
     ar = []
     ar_SD = []
     for ligand in list_l:
@@ -176,68 +136,29 @@ def unify_resi(list_resi, df,resi_list_sorted,list_l= [], threshold=3):
         comz = df_ligand[df_ligand.time == 0].COM_z.mean(axis=0)
         t = (df_ligand.COM_x-comx)*(df_ligand.COM_x-comx)+\
         (df_ligand.COM_y-comy)*(df_ligand.COM_y-comy)+(df_ligand.COM_z-comz)*(df_ligand.COM_z-comz)  
-        if(threshold > 0):
-            df_ligand_diss = df_ligand[t > threshold*threshold]
+        if threshold>0:
+            df_ligand_diss = df_ligand[t>threshold*threshold]
         else:
-            df_ligand_diss = df_ligand[t < threshold*threshold]
-        ar_repl = []
+            df_ligand_diss = df_ligand[t<threshold*threshold]
         ar.append(np.asarray(df_ligand_diss[list_resi].mean().values))
         ar_SD.append(np.asarray(df_ligand_diss[list_resi].std().values))
-    ar= np.asarray(ar)
-    ar_SD= np.asarray(ar_SD)
+    ar = np.asarray(ar)
+    ar_SD = np.asarray(ar_SD)
     x = list_resi
-        
-    ar_complete = np.zeros((len(list_l),len(resi_list_sorted)),dtype = float)
-    ar_SD_complete = np.zeros((len(list_l),len(resi_list_sorted)),dtype = float)
+
+    ar_complete = np.zeros((len(list_l), len(resi_list_sorted)), dtype=float)
+    ar_SD_complete = np.zeros((len(list_l), len(resi_list_sorted)), dtype=float)
     for k,ligand in enumerate(list_l):
-        for i,xx in enumerate(x):
+        for i, xx in enumerate(x):
             try:
-                ind = np.argwhere(xx[6:] == resi_list_sorted)
+                ind = np.argwhere(xx[6:]==resi_list_sorted)
                 ar_complete[k][ind] = ar[k][i]
                 ar_SD_complete[k][ind] = ar_SD[k][i]
-            except:
-                pass  # this is in the case if we  left out part of residues in resi_list_sorted
-    return(ar_complete,ar_SD_complete)
-
-########################################################################
-#    deprecated, will be removed in the next version
-########################################################################
-def ar_complete_ligand(ligand,df_tot,resi_list_sorted,properties=["RE","AR","HD","HA","HY","WB"]):
-    """
-    combines an numpy array of selected part of the complete IFP dataset
-    selection can be done by ligand, residue, and IFP properties
-    Parameters:
-    ligand - ligand name
-    df_tot - ifp database 
-    resi_list_sorted - list of residues 
-    properties - ifp properties
-    Returns:
-    mean value and STD for each property
-    
-    """
-    df_ligand = df_tot[df_tot.ligand == ligand]
-    ar_complete = np.zeros((len(properties),len(resi_list_sorted)),dtype = float)
-    ar_SD_complete = np.zeros((len(properties),len(resi_list_sorted)),dtype = float)
-    
-    for k,pr in enumerate(properties):
-        list_x = get_resn_list(df_ligand.columns.tolist(),pr)
-        ar_repl = []
-        for Repl in np.unique(df_ligand.Repl.tolist()):
-            df_ligand_Repl = df_ligand[df_ligand.Repl == Repl]
-            repl_mean = df_ligand_Repl[list_x].mean().values
-            ar_repl.append(repl_mean)
-        ar= np.mean(np.asarray(ar_repl),axis=0)
-        ar_SD = (np.std(np.asarray(ar_repl),axis=0))
-        for i,xx in enumerate(list_x):
-            ind = np.argwhere(xx[6:] == resi_list_sorted)
-            ar_complete[k][ind] = ar[i]
-            ar_SD_complete[k][ind] = ar_SD[i]
-            
-    return(ar_complete,ar_SD_complete)
+            except IndexError:
+                pass  # this is in the case if we left out part of residues in resi_list_sorted
+    return ar_complete, ar_SD_complete
 
 
-########################################################################
-########################################################################
 def read_databases(lst_of_pkl_files, lst_of_ligand_names):
     """
     returns:
@@ -246,13 +167,13 @@ def read_databases(lst_of_pkl_files, lst_of_ligand_names):
     
     """
     dfs = []
-    columns = None
+    columns = []
     for pkl_df, ligand_name in zip(lst_of_pkl_files, lst_of_ligand_names):
         df = pd.read_pickle(pkl_df)
         df['ligand'] = ligand_name
         dfs.append(df)
 
-        if columns is None:
+        if not columns:
             columns = np.array(df.columns.tolist())
         else:
             diff = np.setdiff1d(np.asarray(df.columns.tolist()), columns)
@@ -282,9 +203,7 @@ def read_databases(lst_of_pkl_files, lst_of_ligand_names):
     return new_df
 
 
-##########################################################################
-######################################################################
-def GRID_PRINT(file_name,pdrv,gr_orgn,gr_dim,grid_stp):
+def GRID_PRINT(file_name, pdrv, gr_orgn, gr_dim, grid_stp):
     """
     function that saved dx grid 
     Parameters:
@@ -296,33 +215,30 @@ def GRID_PRINT(file_name,pdrv,gr_orgn,gr_dim,grid_stp):
     Returns:
     
     """
-    header = "#  density  \n"
-    header += "object 1 class gridpositions counts %3i" %gr_dim[0]+" %3i" %gr_dim[1]+" %3i" %gr_dim[2]+"\n"
-    header += "origin %5.3f" %gr_orgn[0]+" %5.3f" %gr_orgn[1]+" %5.3f" %gr_orgn[2]+"\n"
-    header += "delta %5.2f" %(grid_stp)+" 0 0 \n"
-    header += "delta 0 %5.2f" %(grid_stp)+" 0 \n"
-    header += "delta 0 0 %5.2f" %(grid_stp)+" \n"
-    header += "object 2 class gridconnections counts %5i" %(gr_dim[0])+" %5i" %(gr_dim[1])+" %5i" %(gr_dim[2])+"\n"
-    header += "object 3 class array type double rank 0 items %7i" %(gr_dim[0]*gr_dim[1]*gr_dim[2])+" data follows \n"
 
-    check_range = int((3.0/grid_stp) + 1)
+    header = f"#  density  \n" \
+        f"object 1 class gridpositions counts {gr_dim[0]:3i} {gr_dim[1]:3i} {gr_dim[2]:3i}\n" \
+        f"origin {gr_orgn[0]:5.3f} {gr_orgn[1]:5.3f} {gr_orgn[2]:5.3f}\n" \
+        f"delta {grid_stp:5.2f} 0 0 \n" \
+        f"delta 0 {grid_stp:5.2f} 0 \n" \
+        f"delta 0 0 {grid_stp:5.2f} \n" \
+        f"object 2 class gridconnections counts {gr_dim[0]:5i} {gr_dim[1]:5i} {gr_dim[2]:5i}\n" \
+        f"object 3 class array type double rank 0 items {gr_dim[0]*gr_dim[1]*gr_dim[2]:7i} data follows\n" \
 
+    # check_range = int((3.0/grid_stp) + 1)
     output = []
     count = 0
     for i in pdrv.reshape(-1):
-        output.append("%12.3e" %(i))
+        output.append(f"{i:12.3e}" %(i))
         count += 1
-        if count%3 == 0:
+        if count % 3 == 0:
             output.append("\n")
-            
-    with open(file_name,"w") as f:
+
+    with open(file_name, "w") as f:
         f.write(header)
         f.write("".join(output))
-    return
 
 
-##################################
-################################
 def Map_3D_grid(df_tot_to_save,filename):
     """
     Mapping ligand motion trajectory from the IFP file on the 3D grid and saving the grid in dx format
@@ -344,20 +260,23 @@ def Map_3D_grid(df_tot_to_save,filename):
     COM_x = np.asarray(COM_x)
     COM_y = np.asarray(COM_y)
     COM_z = np.asarray(COM_z)
-    grid_mm_x = [COM_x.min(),COM_x.max()]
-    grid_mm_y = [COM_y.min(),COM_y.max()]
-    grid_mm_z = [COM_z.min(),COM_z.max()]
+    grid_mm_x = [COM_x.min(), COM_x.max()]
+    grid_mm_y = [COM_y.min(), COM_y.max()]
+    grid_mm_z = [COM_z.min(), COM_z.max()]
     grid_step = 1
-    grid_dim= [int((grid_mm_x[1]-grid_mm_x[0])/grid_step+1),int((grid_mm_y[1]-grid_mm_y[0])/grid_step+1),int((grid_mm_z[1]-grid_mm_z[0])/grid_step+1)]
+    grid_dim= [
+        int((grid_mm_x[1]-grid_mm_x[0])/grid_step+1),
+        int((grid_mm_y[1]-grid_mm_y[0])/grid_step+1),
+        int((grid_mm_z[1]-grid_mm_z[0])/grid_step+1)]
     grid = np.zeros((grid_dim),dtype=float)
     for (x,y,z) in zip(COM_x,COM_y,COM_z):
         ix= int((x-COM_x.min())/grid_step)
         iy= int((y-COM_y.min())/grid_step)
         iz= int((z-COM_z.min())/grid_step)
-        grid[ix,iy,iz] += 1
-    grid_origin = [grid_mm_x[0],grid_mm_y[0],grid_mm_z[0]]    
-    GRID_PRINT(filename,grid,grid_origin,grid_dim,grid_step)
-    return
+        grid[ix, iy, iz] += 1
+    grid_origin = [grid_mm_x[0],grid_mm_y[0],grid_mm_z[0]]
+    GRID_PRINT(filename, grid, grid_origin, grid_dim, grid_step)
+
 
 def plot_cluster_info(df, out_name=""):
     """
@@ -383,10 +302,10 @@ def plot_cluster_info(df, out_name=""):
             pos_stds[j].append(dd[c].std())
 
     fig, axes = plt.subplots(2, 3, figsize=(16, 6))
+    assert isinstance(axes, np.ndarray)
     colors = ["blue", "green", "red", "k", "orange", "cyan"]
 
-    for pos_mean, pos_std, color, label, ax in zip(
-        pos_means, pos_stds, colors, list_properties, axes.flatten()):
+    for pos_mean, pos_std, color, label, ax in zip(pos_means, pos_stds, colors, list_properties, axes.flat):
         ax.scatter(x=labels_list, y=pos_mean, color=color, label=label)
         ax.errorbar(x=labels_list,y=pos_mean, yerr=pos_std, color="gray", fmt='--', markersize=1, linewidth=0.7)
         ax.set_title(label)
@@ -402,80 +321,6 @@ def plot_cluster_info(df, out_name=""):
     plt.close(fig)
 
 
-
-
-########################################################################
-# deprecated, will be removed in the next version
-########################################################################
-
-def Print_IFP_averaged(df_tot,resi_list_sorted,ligandsi,resi_name_list_sorted,properties=["AR","HD","HA","HY","WB","IP","IN"],threshold = 0.01):
-    """
-    generate a list of residues, combine all properties for each residue, sort them by the residue number
-    
-    Parameters:
-        
-    Returns:
-    IFP plot
-    
-    """
-    index_no_zero_IFP = np.asarray([])
-    threshold = 0.01
-
-
-    for i, pr in enumerate(properties):
-        list_x = get_resn_list(df_tot.columns.tolist(),pr)
-        ar_complete,ar_SD_complete=unify_resi(list_x,df_tot,resi_list_sorted,ligandsi)
-        ind = np.argwhere(ar_complete.mean(axis=0) > threshold).flatten()
-        index_no_zero_IFP = np.concatenate((index_no_zero_IFP,ind))
-
-    index_no_zero_IFP = np.sort(np.unique(index_no_zero_IFP.astype(int)))
-    part_resi =np.asarray(resi_name_list_sorted)[index_no_zero_IFP]
-    logger.info(f"{np.asarray(resi_name_list_sorted)[index_no_zero_IFP]}")
-    logger.info(f"{len(index_no_zero_IFP), len(resi_list_sorted)}")
-    ind_part_resi = []
-    for pr in part_resi:
-        t = np.argwhere(resi_name_list_sorted == pr)
-        ind_part_resi.append(t[0][0])
-
-    # Plot average IFP map 
-    color_ifp = ["k","magenta","skyblue","orange","darkgreen","red","blue","red"]
-
-
-    resi_list_eq = resi_list_sorted
-    ligands_group = np.asarray(ligandsi)
-    ligands_name = np.asarray(ligandsi)  #np.unique(df_tot.ligand.tolist())
-
-    #ligands_group = exp[exp.type == 'D'].ligand.tolist()
-    #ligands_name = exp[exp.type == 'D'].name.tolist()
-    logger.info(f"{ligands_group}")
-    logger.info(f"{ligands_name}")
-
-    fig = plt.figure(figsize = (16, 2*len(ligands_group)),facecolor='w')
-    fig.subplots_adjust(hspace=0.05, wspace=0.25)
-    for i,pr in enumerate(properties):
-        list_x = get_resn_list(df_tot.columns.tolist(),pr)
-        ar,ar_SD,x = get_from_prop(list_x, df_tot,threshold=0.1)
-        ar_complete,ar_SD_complete=unify_resi(list_x,df_tot,resi_list_eq,ligands_group,threshold=-6)
-        ax = plt.subplot(6,1,1)
-        ax.set_xticks(np.asarray(range(0,len(ind_part_resi))))
-        ax.set_yticks(2*np.arange(0,len(ligands_group)))
-        ax.set_xticklabels(resi_name_list_sorted[ind_part_resi],rotation=90,fontsize=12)
-        ax.set_yticklabels(ligands_name,fontsize=12)
-        for l,ar_l in enumerate(ar_complete[:,ind_part_resi]):
-            for r in range(0,len(ind_part_resi)):
-                ax.scatter(r-0.4+i*0.1,2*l-0.4+i*0.1,color=color_ifp[i],marker='s',alpha=0.8,s=120*ar_l[r])
-        ax.scatter(-2,0,color=color_ifp[i],alpha=0.9,s=120,label = pr,marker='s') 
-#    plt.title(pr,fontsize=16)
-        ax.grid(which="both")
-        plt.xlim((-0.6,len(ind_part_resi)+2))
-    plt.legend(fontsize=10,loc='upper right', bbox_to_anchor=(1.05, 1.))
-    plt.show()
-    return(ind_part_resi)
-
-
-###################################
-#
-##################################
 def last_frames_by_contact(df_tot,columns_IFP,contacts):
     """
     functin that build an numpy array of the IFP properties extracting from the TFP dataset only the several last frame with a pre-defined number of the protein-ligand contacts 
@@ -504,17 +349,12 @@ def last_frames_by_contact(df_tot,columns_IFP,contacts):
     for (r,t,f) in r_t_f:  
         df_repl = df_tot[df_tot.Repl == r]
         df_traj = df_repl[df_repl.Traj == t]
-        df = df.append(df_traj[df_traj.time == f], ignore_index = True)
-        com_tot.append(df_traj[df_traj.time == f][["COM_x","COM_y","COM_z"]].values)
+        #df = df.append(df_traj[df_traj.time==f], ignore_index=True)
+        df = pd.concat([df, df_traj[df_traj.time==f]], ignore_index=True)
+        com_tot.append(df_traj[df_traj.time == f][["COM_x", "COM_y", "COM_z"]].values)
         diss.append(df_traj[df_traj.time == f]["length"].values)
     ar = df[columns_IFP].values
-    return(ar,r_t_f,df,np.asarray(com_tot),np.asarray(diss))
-
-
-###################################
-#
-##################################
-
+    return ar, r_t_f, df, np.asarray(com_tot), np.asarray(diss)
 
 
 def bootstrapp(t, rounds=50000):
@@ -529,11 +369,11 @@ def bootstrapp(t, rounds=50000):
     alpha = 0.8
     sub_set = int(alpha*len(t))
     tau_bootstr = []
-    for i in range(1,max_shuffle):
+    for _ in range(max_shuffle):
         # generate a sub-set
         np.random.shuffle(t)
         t_b = t[:sub_set]
         # find residence time from a sub-stet
-        t_b_sorted_50 =(np.sort(t_b)[int(len(t_b)/2.0-0.5)]+np.sort(t_b)[int(len(t_b)/2)])/2.0
+        t_b_sorted_50 = (np.sort(t_b)[int(len(t_b)/2-0.5)] + np.sort(t_b)[int(len(t_b)/2)]) / 2.0
         tau_bootstr.append(t_b_sorted_50)
-    return(tau_bootstr)
+    return tau_bootstr

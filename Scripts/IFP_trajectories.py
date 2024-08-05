@@ -37,8 +37,12 @@ from MDAnalysis.coordinates.memory import MemoryReader
 #from sklearn import linear_model
 #from sklearn import preprocessing
 
-from IFP_generation import IFP, table_combine #, Plot_IFP
+from IFP_manipulation import table_combine
 
+if mda.__version__ == "1.1.1":
+    from IFP_generation_old import IFP
+else:
+    from IFP_generation_new import IFP
 
 class Trj_Properties:
     def __init__(self):
