@@ -1,18 +1,11 @@
 import numpy as np
-#from matplotlib import *
-#from matplotlib.patches import ArrowStyle
-#from matplotlib.patches import Ellipse
 from scipy.spatial import distance
 from loguru import logger
-
 import matplotlib.pyplot as plt
-#import seaborn as sns
-#sns.set()
-#sns.set_context("paper", font_scale=0.6)
 
 def plot_graph(
         df_ext, out_base_name,
-        ligand: list = None,
+        ligand: list|None = None,
         draw_round = False,
         water = False):
     """
@@ -64,10 +57,10 @@ def plot_graph(
         df_ext_ligand = df_ext[df_ext.ligand.isin(ligand)]
         logger.info(f"Edges will be shown for ligand: {ligand}")
 
-    label_rmsd = []
+    label_rmsd: list[float] = []
     label_com = []
-    label_size = []
-    label_water = []
+    label_size: list[float] = []
+    label_water: list[int] = []
 
     #labels_list, nodes = np.unique(df_ext.label.values,return_counts= True)
     labels_list = np.unique(df_ext.label.values)
@@ -79,10 +72,6 @@ def plot_graph(
         current_set = df_ext[df_ext.label == l]
         label_rmsd.append(current_set.RMSDl.mean())
         label_com.append(current_set.COM.mean(axis=0))
-        logger.info(f"cluster {l}:")
-        logger.info(f"   STD of COM: {current_set.COM_x.std():.3f} {current_set.COM_y.std():.3f} {current_set.COM_z.std():.3f}")
-        logger.info(f"  STD of RMSD: {current_set.RMSDl.std():.3f}")
-        logger.info(f"        Water: {label_water}")
 
         label_size.append(100*current_set.shape[0]/df_ext.shape[0])
         if water:
@@ -91,11 +80,16 @@ def plot_graph(
         for j in range(0, i):
             coms[i, j] = distance.euclidean(label_com[i], label_com[j])
 
+        logger.info(f"cluster {l}:")
+        logger.info(f"   STD of COM: {current_set.COM_x.std():.3f} {current_set.COM_y.std():.3f} {current_set.COM_z.std():.3f}")
+        logger.info(f"  STD of RMSD: {current_set.RMSDl.std():.3f}")
+        logger.info(f"        Water: {label_water}")
+
     # loop to compute edges dencity
     for l, (df_label, df_time) in enumerate(zip(df_ext_ligand.label.values, df_ext_ligand.time.values)):
         if df_time != 0:
             if df_ext_ligand.label.values[l-1] != df_label:
-                edges[df_ext_ligand.label.values[l-1], df_label] += labels_list.shape[0]/df_ext_ligand.label.values.shape[0] 
+                edges[df_ext_ligand.label.values[l-1], df_label] += labels_list.shape[0]/df_ext_ligand.label.values.shape[0]
 
     # print(np.max(edges), edges[edges > 0.5*np.max(edges)])
 
@@ -114,7 +108,8 @@ def plot_graph(
 
     def plot_transition_density_and_flow():
         fig, axes = plt.subplots(1, 2)
-        for ax in axes:
+        assert isinstance(axes, np.ndarray)
+        for ax in axes.flat:
             ax.set_xlabel("cluster #")
             ax.set_ylabel("cluster #")
         axes[0].set_title("Transition density")
@@ -124,7 +119,6 @@ def plot_graph(
         fig.savefig(f"{out_base_name}.transition_density_and_flow.pdf")
         plt.close(fig)
     plot_transition_density_and_flow()
-
 
     starting_labels = df_ext[df_ext.time == 0].label.values  # list of clusters of all first frames in all trajectories
     starting_list = np.unique(starting_labels) # list of clusters that appear as first frame
@@ -208,7 +202,7 @@ def plot_graph(
             ax.set_ylabel('Cluster #')
             ax.set_xlabel(r'RMSD [ $\mathrm{\AA}$ ]')
             # for matplotlib < 3.5, needed two calls,
-            #   this is for newer matplotlib: 
+            #   this is for newer matplotlib:
             #   ax.set_xticks(x_tick_pos, labels=x_tick_label)
             ax.set_xticks(x_tick_pos)
             ax.set_xticklabels(x_tick_label)
@@ -282,7 +276,7 @@ def plot_graph(
 
     for ax in axes+axes_wat:
         for i, txt in enumerate(labels_list):
-            ax.annotate(txt, (label_x[txt], label_y[txt]+0.05*pow(i,0.5)))
+            ax.annotate(txt, (float(label_x[txt]), label_y[txt]+0.05*pow(i, 0.5)))
 
     for ax in axes_wat:
         ax.scatter(
@@ -293,7 +287,7 @@ def plot_graph(
             edgecolors="lightskyblue",
             s=500*np.asarray(label_size),
             cmap='Oranges',
-            linewidths=np.asarray(label_water))
+            linewidths=label_water)
     for ax in axes:
         ax.scatter(
             label_x,
