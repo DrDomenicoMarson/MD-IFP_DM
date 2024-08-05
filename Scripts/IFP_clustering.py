@@ -134,8 +134,9 @@ def unify_resi(list_resi, df, resi_list_sorted, list_l=None, threshold=3):
         comx = df_ligand[df_ligand.time == 0].COM_x.mean(axis=0)
         comy = df_ligand[df_ligand.time == 0].COM_y.mean(axis=0)
         comz = df_ligand[df_ligand.time == 0].COM_z.mean(axis=0)
-        t = (df_ligand.COM_x-comx)*(df_ligand.COM_x-comx)+\
-        (df_ligand.COM_y-comy)*(df_ligand.COM_y-comy)+(df_ligand.COM_z-comz)*(df_ligand.COM_z-comz)  
+        t = (df_ligand.COM_x-comx)*(df_ligand.COM_x-comx)
+        t += (df_ligand.COM_y-comy)*(df_ligand.COM_y-comy)
+        t += (df_ligand.COM_z-comz)*(df_ligand.COM_z-comz)
         if threshold>0:
             df_ligand_diss = df_ligand[t>threshold*threshold]
         else:
@@ -338,15 +339,15 @@ def last_frames_by_contact(df_tot,columns_IFP,contacts):
     r_t_f = []
     com_tot = []
     diss = []
-    for r in df_tot.Repl.unique():  
+    for r in df_tot.Repl.unique():
         df_repl = df_tot[df_tot.Repl == r]
         for t in df_repl.Traj.unique():
             df_traj = df_repl[df_repl.Traj == t]
             sum_IFP = df_traj[columns_IFP].sum(1).values
             last_frame = np.max(np.argwhere(sum_IFP > contacts))
             r_t_f.append((r,t,last_frame))
-    df = pd.DataFrame(columns = df_tot.columns)     
-    for (r,t,f) in r_t_f:  
+    df = pd.DataFrame(columns = df_tot.columns)
+    for (r,t,f) in r_t_f:
         df_repl = df_tot[df_tot.Repl == r]
         df_traj = df_repl[df_repl.Traj == t]
         #df = df.append(df_traj[df_traj.time==f], ignore_index=True)
