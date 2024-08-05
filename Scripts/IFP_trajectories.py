@@ -1,11 +1,9 @@
-import warnings
-warnings.filterwarnings("ignore")
-
-from loguru import logger
-
-
-import glob, os
+# import warnings
+# warnings.filterwarnings("ignore")
+import glob
+import os
 import sys
+from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from matplotlib import gridspec
@@ -13,36 +11,24 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 
+from loguru import logger
 from rdkit import Chem
-#from rdkit.Chem import AllChem
-#from rdkit.Chem import EState
-#from rdkit.Chem import MolDb
-#from rdkit.Chem import QED
-from rdkit.Chem import rdchem
-from rdkit.Chem import ChemicalFeatures
 from rdkit import RDConfig
-#from rdkit.Chem.Draw import IPythonConsole
-#from rdkit.Chem import Draw
 
 import MDAnalysis as mda
 
-from MDAnalysis import __version__ as mda_version
-IS_OLD_MDA = mda_version == "1.1.1"
-
-#from MDAnalysis.lib.formats.libdcd import DCDFile
-from MDAnalysis.analysis import contacts, align,rms
+from MDAnalysis.analysis import align, rms
 from MDAnalysis.analysis.base import AnalysisFromFunction
 from MDAnalysis.coordinates.memory import MemoryReader
-
-#from sklearn import linear_model
-#from sklearn import preprocessing
 
 from IFP_manipulation import table_combine
 
 if mda.__version__ == "1.1.1":
     from IFP_generation_old import IFP
+    IS_OLD_MDA = True
 else:
     from IFP_generation_new import IFP
+    IS_OLD_MDA = False
 
 class Trj_Properties:
     def __init__(self):
@@ -50,8 +36,8 @@ class Trj_Properties:
         self.stop = 0
         self.step = 1
         self.length = 0
-        self.df_properties = None  
-        self.rmsd_prot = None  
+        self.df_properties = None
+        self.rmsd_prot = None
         self.rmsd_lig = None
         self.rgyr_prot = None
         self.rgyr_lig = None
@@ -59,13 +45,8 @@ class Trj_Properties:
         self.rmsd_auxi = None
 
 
-
 class trajectories:
     """
-   
-    1 Functions:
-        __init__    
-    2 Variables: (see description in the function __init__())
         ligand - object of the class ligand
         namd -  object of the class namd
         ramd -  object of the class ramd
@@ -80,9 +61,8 @@ class trajectories:
         tau_exp 
         tau_exp_SD
         type
-
         
-    3 Sub-Classes
+    Sub-Classes
         3.1 ligand
                 Functions:
                     _int__
@@ -92,7 +72,6 @@ class trajectories:
                     mol
                     ligand_2D
                     radius
-            
         3.2 namd  
                 Functions:
                     __init__
@@ -109,7 +88,6 @@ class trajectories:
                     rgyr_prot = []
                     rgyr_lig = []
                     contact_collection = []  # this is a container where we will accomulate all protein-ligand contacts
-
         3.3 ramd  
                 Functions:
                     __init__
@@ -123,7 +101,6 @@ class trajectories:
                     replicas = []  # tauRAMD for each replica
                     replicas_SD = []
                     contact_collection - a complete list of contact residues  
-
     """
 
     def __init__(self,
@@ -133,19 +110,15 @@ class trajectories:
                  pdb=None,
                  top=None,
                  ligand_pdb=None,
-                 ligand_mol2 = None,
+                 ligand_mol2=None,
                  ramd_traj_tmpl="*dcd",
                  namd_traj_tmpl="*dcd",
                  timestep=1):
         """
-        Class constructor:
-        
-        INPUT PARAMETERS:
         PRJ_DIR - directory to story data
         namd_dirs - TEMPLATE used for search of directories with NAMD simulations (should contain also complete path)
         ramd_dirs - TEMPLATE used for search of directories with RAMD simulations (should contain also complete path)
         timestep - timestep used to save MD frames in ps
-                
         """
 
         if pdb is None:
@@ -217,9 +190,8 @@ class trajectories:
                 self.ramd.repl_traj.append(ramd_list)
                 self.ramd.names.append(os.path.basename(dir_ramd))
                 logger.info(f"{len(ramd_list)} RAMD traj found in {dir_ramd}")
-        return
 
-    #========================================================
+
     class Namd:
         """
                 Functions:
@@ -971,153 +943,120 @@ class trajectories:
 
 
 class  Ligand:
-    """
-    Functions:
-        _int__(self,PRJ_DIR,ligand_pdb,ligand_mol2="moe.mol2")
-    Variable:
-        ligands_names
-        property_list
-        mol
-        ligand_2D
-        radius
-    """
-    def __init__(self, PRJ_DIR, ligand_pdb, ligand_mol2="moe.mol2"):
+    def __init__(self, PRJ_DIR, ligand_pdb:str|None=None, ligand_mol2:str|None=None):
         self.ligands_names = []
         self.property_list = {}
         self.mol = None
-        self.ligand_2D = None
         resnames = []
         list_labelsF = []
-        DO_PDB = False
-        self.properties_list = []
-        if ligand_pdb or ligand_mol2:                   
-            if os.path.isfile(PRJ_DIR+"/"+ligand_pdb) or  os.path.isfile(PRJ_DIR+"/"+ligand_mol2):
+        USE_PDB = ""
+        if ligand_mol2 is not None:
+            if os.path.isfile(PRJ_DIR + "/" + ligand_mol2):
                 try:
-                    mol, list_labels, resnames = self.ligand_Mol2(PRJ_DIR+"/"+ligand_mol2)
-                except:
-                    logger.info("Mol2 is absent, PDB file will be used for ligand structure analysis")
-                    DO_PDB = True                        
-            elif os.path.isfile(PRJ_DIR+ligand_pdb):
-                    DO_PDB = True
+                    self.mol, list_labels, resnames = self.ligand_Mol2(PRJ_DIR + "/" + ligand_mol2)
+                except ValueError:
+                    logger.info("Mol2 is absent or unreadable, PDB file will be used for ligand structure analysis")
+                    logger.warning("Aromatic atoms can not be recognized using PDB file")
+
+            if self.mol is None and os.path.isfile(PRJ_DIR + "/" + ligand_pdb):
+                self.mol, list_labels, resnames = self.ligand_PDB(PRJ_DIR + "/" + ligand_pdb)
+                if self.mol is None:
+                    logger.warning("RDKit cannot read PDB structure, trying to correct atom naming")
+                    rename_H(PRJ_DIR + "/" + ligand_pdb, PRJ_DIR + "/Corrected_naming_ligand.pdb")
+                    self.mol, list_labels, resnames = self.ligand_PDB(PRJ_DIR + "/Corrected_naming_ligand.pdb")
+                    if self.mol is None:
+                        raise ValueError("RDKit cannot read PDB structure, even after correcting atom naming")
+                    USE_PDB = "Corrected_naming_ligand.pdb"
+                else:
+                    USE_PDB = ligand_pdb
             else:
                 logger.error(f"nether ligand PDB nor Mol2 were found in {PRJ_DIR} expected file names: {ligand_pdb} {ligand_mol2}")
-                return
-            if DO_PDB:
-                logger.warning("mol2 file was not found or contains errors")
-                logger.warning("pdb file will be used instead\n Aromatic atoms can not be recognized")
-                mol,list_labels, resnames = self.ligand_PDB(PRJ_DIR+"/"+ligand_pdb)
-            if mol is None:
-                if DO_PDB:
-                    logger.warning("RDKit cannot read PDB structure, atom naming will be corrected")
-                    rename_H(PRJ_DIR+"/"+ligand_pdb,PRJ_DIR+"/Corrected_Ligand.pdb")
-                    mol,list_labels, resnames = self.ligand_PDB(PRJ_DIR+"/Corrected_Ligand.pdb")
-                    properties_list,ligand_2D = self.ligand_properties(mol, list_labels)
-                else:
-                    properties_list = []
-                    logger.error(f"RDKit cannot read MOL2 structure {mol}")
-            else:
-                properties_list,ligand_2D = self.ligand_properties(mol,list_labels)
+                raise FileNotFoundError()
+
+            self.properties_list, self.ligand_2D = self.ligand_properties(self.mol, list_labels)
+
             # add fluorine as hydrophobic atoms (absent in RDkit)
-            if len(properties_list) > 0:
-                if DO_PDB:
-                    list_labelsF  = self.ligand_PDB_F(PRJ_DIR+"/"+ligand_pdb)
+            if len(self.properties_list) > 0:
+                if USE_PDB:
+                    list_labelsF  = self.ligand_PDB_F(PRJ_DIR + "/" + USE_PDB)
                     list_labelsPO3 = []
                     list_labelsP = []
                 else:
-                    list_labelsF, list_labelsPO3, list_labelsP  = self.ligand_Mol2_F_PO3(PRJ_DIR+"/"+ligand_mol2)
+                    list_labelsF, list_labelsPO3, list_labelsP  = self.ligand_Mol2_F_PO3(PRJ_DIR + "/" + ligand_mol2)
 
                 if len(list_labelsF) > 0:
-                    if  'Hydrophobe' in properties_list:  
-                        new_properties_list_H = properties_list['Hydrophobe']
-                        for at in list_labelsF:  new_properties_list_H.append(at)
-                    else:  properties_list.update({'Hydrophobe': list_labelsF})
-                    properties_list['Hydrophobe'] = new_properties_list_H
+                    if  'Hydrophobe' in self.properties_list:
+                        new_properties_list_H = self.properties_list['Hydrophobe']
+                        for at in list_labelsF:
+                            new_properties_list_H.append(at)
+                        self.properties_list['Hydrophobe'] = new_properties_list_H
+                    else:
+                        self.properties_list.update({'Hydrophobe': list_labelsF})
                     logger.info(f"Fluorine atoms are found (will be considered as Hydrophobe): {list_labelsF}")
 
                 if len(list_labelsP) > 0:
-                    if  'NegIonizable' in properties_list: 
-                        new_properties_list_H = properties_list['NegIonizable']
-                        for at in list_labelsP: new_properties_list_H.append(at)
-                        properties_list['NegIonizable'] = new_properties_list_H
-                    else:  properties_list.update({'NegIonizable': list_labelsP})
+                    if  'NegIonizable' in self.properties_list:
+                        new_properties_list_H = self.properties_list['NegIonizable']
+                        for at in list_labelsP:
+                            new_properties_list_H.append(at)
+                        self.properties_list['NegIonizable'] = new_properties_list_H
+                    else:
+                        self.properties_list.update({'NegIonizable': list_labelsP})
                     logger.info(f"PO3 group is found (P atoms will be considered as NegIonizable): {list_labelsP}")
 
                 if len(list_labelsPO3) > 0:
-                    if  'Acceptor' in properties_list: 
-                        new_properties_list_H = properties_list['Acceptor']
-                        for at in list_labelsPO3: new_properties_list_H.append(at)
-                        properties_list['Acceptor'] = new_properties_list_H
-                    else:  properties_list.update({'Acceptor': list_labelsPO3})
+                    if  'Acceptor' in self.properties_list:
+                        new_properties_list_H = self.properties_list['Acceptor']
+                        for at in list_labelsPO3:
+                            new_properties_list_H.append(at)
+                        self.properties_list['Acceptor'] = new_properties_list_H
+                    else:
+                        self.properties_list.update({'Acceptor': list_labelsPO3})
                     logger.info(f"PO3 group is found (O atoms will be considered as Acceptors): {list_labelsPO3}")
 
 
                 logger.info("...............Ligand properties:................")
-                self.properties_list = properties_list
-                for k in properties_list:
-                    logger.info(f"{k} {properties_list[k]}")
+                for k, val in self.properties_list.items():
+                    logger.info(f"{k} {val}")
             else:
                 logger.error("RDKit cannot generate ligand property list")
+                raise ValueError
 
-            try:
-                self.ligand_2D=ligand_2D
-                self.mol = mol
-                self.property_list=properties_list
-            except:
-                if DO_PDB:
-                    logger.error("RDKit cannot read file - some errors found in the ligand structure")
-                    sys.exit()
-                else:
-                    try:
-                        mol,list_labels,resnames = self.ligand_PDB(PRJ_DIR+"/"+ligand_pdb)
-                    except:
-                        logger.error("RDKit cannot read file- some errors found in the ligand structure")
-                        sys.exit()
             self.ligands_names = np.unique(resnames)
             logger.info(f"The following residue names will be used to identify ligand in the PDB file: {self.ligands_names}")
         else:
             logger.warning("ligand PDB and Mol2 are not defined")
-        return
-        ########################################
-        #
-        #     get ligand chemical properties from PDB and Mol2 files
-        #
-        ########################################
+
 
     def ligand_Mol2(self, ligand_mol2):
         """
         Parameters:
         ligand_mol2 - ligand structure file  in the Mol2 format (not all mol2 format work, but generated by MOE does)
-        Results:
+        Returns:
         mol - RDKit molecular object
         list_labels - list of atom names
         resnames - list of residue names (for all atoms)
         """
-        with open(ligand_mol2, "r") as ff:
-            lines = ff.readlines()
         list_labels = []
         resnames = []
         start = False
-        for line in lines:
-            items = line.split()
-            if line.find("<TRIPOS>ATOM") >= 0:
-                start = True
-            elif line.find("<TRIPOS>BOND") >= 0:
-                start = False
-            else:
-                if start:
-                    list_labels.append(items[1])
-                    resnames.append(items[7])
+        with open(ligand_mol2, "r") as ff:
+            for line in ff:
+                items = line.split()
+                if line.find("<TRIPOS>ATOM") >= 0:
+                    start = True
+                elif line.find("<TRIPOS>BOND") >= 0:
+                    start = False
+                else:
+                    if start:
+                        list_labels.append(items[1])
+                        resnames.append(items[7])
         mol = Chem.rdmolfiles.MolFromMol2File(ligand_mol2, removeHs=False)
         if len(list_labels) == 0:
             raise ValueError(f"No atoms found in the mol2 file {ligand_mol2}")
         logger.info(f"Atoms found in the MOL2 file:\n{list_labels}")
         return mol, list_labels, resnames
 
-        ########################################
-        #
-        #     get ligand chemical properties from PDB file only
-        #
-        ########################################
     def ligand_PDB(self,ligand_pdb):
         """
         Parameters:
@@ -1226,21 +1165,23 @@ class  Ligand:
         Results:
         properties_list - a dictionary containing types of chemical properties and corresponding atoms 
         """
-        ligand_2D = Chem.MolFromSmiles(Chem.MolToSmiles(mol))
+        ligand_2D = Chem.rdmolfiles.MolFromSmiles(Chem.rdmolfiles.MolToSmiles(mol))
         fdefName = os.path.join(RDConfig.RDDataDir,'BaseFeatures.fdef')
-        factory = ChemicalFeatures.BuildFeatureFactory(fdefName)
+        factory = Chem.ChemicalFeatures.BuildFeatureFactory(fdefName)
         feats = factory.GetFeaturesForMol(mol)
         properties_list = {}
         for f in feats:
             prop = f.GetFamily()  #  get property name
             at_indx  = list(f.GetAtomIds())  # get atom index
-            if prop not in properties_list.keys():
-                properties_list[prop]=[]
-            if(len(at_indx) > 0):
-                for l in at_indx: properties_list[prop].append(list_labels[l])
-            else: properties_list[prop].append(list_labels[at_indx[0]])
-        return(properties_list,ligand_2D)
-        
+            if prop not in properties_list:
+                properties_list[prop] = []
+            if len(at_indx) > 0:
+                for l in at_indx:
+                    properties_list[prop].append(list_labels[l])
+            else:
+                properties_list[prop].append(list_labels[at_indx[0]])
+        return properties_list, ligand_2D
+
         ########################################
         #
         #     correct PDB file (name and position of hydrogen atoms) to make it readable by RDKit
@@ -1522,7 +1463,7 @@ def  ligand_properties(ligand_pdb, ligand_mol2):
         removeHs=False)
 
     fdefName = os.path.join(RDConfig.RDDataDir,'BaseFeatures.fdef')
-    factory = ChemicalFeatures.BuildFeatureFactory(fdefName)
+    factory = Chem.ChemicalFeatures.BuildFeatureFactory(fdefName)
     feats = factory.GetFeaturesForMol(mol)
 
     properties_list = {}
