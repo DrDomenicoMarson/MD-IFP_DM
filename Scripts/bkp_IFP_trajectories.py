@@ -49,12 +49,15 @@ class Trj_Properties:
 class trajectories:
     """
         ligand - object of the class ligand
+        namd -  object of the class namd
         ramd -  object of the class ramd
         PRJ_DIR
         pdb
         top
         ramd_traj_tmpl  
+        namd_traj_tmpl 
         ramd_tmpl 
+        namd_tmpl 
         timestep         
         tau_exp 
         tau_exp_SD
@@ -70,6 +73,22 @@ class trajectories:
                     mol
                     ligand_2D
                     radius
+        3.2 namd  
+                Functions:
+                    __init__
+                Variable:
+                    repl_traj = []
+                    repl_names = [] 
+                    length = []
+                    step = 1
+                    start = 0
+                # the next set of parameters are computed by the analysis_all_namd() function
+                    df_properties = []
+                    rmsd_prot = []
+                    rmsd_lig = []
+                    rgyr_prot = []
+                    rgyr_lig = []
+                    contact_collection = []  # this is a container where we will accomulate all protein-ligand contacts
         3.3 ramd  
                 Functions:
                     __init__
@@ -87,15 +106,18 @@ class trajectories:
 
     def __init__(self,
                  PRJ_DIR,
+                 namd_tmpl="NAMD*",
                  ramd_tmpl="RAMD*",
                  pdb=None,
                  top=None,
                  ligand_pdb=None,
                  ligand_mol2=None,
                  ramd_traj_tmpl="*dcd",
+                 namd_traj_tmpl="*dcd",
                  timestep=1):
         """
         PRJ_DIR - directory to story data
+        namd_dirs - TEMPLATE used for search of directories with NAMD simulations (should contain also complete path)
         ramd_dirs - TEMPLATE used for search of directories with RAMD simulations (should contain also complete path)
         timestep - timestep used to save MD frames in ps
         """
@@ -123,7 +145,9 @@ class trajectories:
         self.pdb = pdb
         self.top = top
         self.ramd_traj_tmpl ="/"+ramd_traj_tmpl
+        self.namd_traj_tmpl = "/"+namd_traj_tmpl
         self.ramd_tmpl ="/"+ramd_tmpl
+        self.namd_tmpl = "/"+namd_tmpl
         self.timestep = timestep
         self.sub_system = "protein or (resname MG MN CA Mg Mn) or (resname WAT HOH SOL TIP3)"  # G G3 G5 U5 C C3  can be added for RNA
 
@@ -143,10 +167,19 @@ class trajectories:
             logger.exception(f"Selection error with this ligand name: {self.ligand.ligands_names[0]}")
             raise exc
 
-        self.ramd = trajectories.Ramd(PRJ_DIR, pdb, top, timestep) 
+        #self.ligand = self.createLigand(PRJ_DIR,ligand_pdb,ligand_mol2)
+        self.namd = self.createNamd()
+        self.ramd = self.createRamd(PRJ_DIR,pdb,top,timestep)
         self.tau_exp = None
         self.tau_exp_SD = None
         self.type = None
+
+        logger.info(f"Equilibration trajectories will be searched using the template: {PRJ_DIR+self.namd_tmpl+self.namd_traj_tmpl}")
+        for file_n in np.sort(glob.glob(PRJ_DIR+self.namd_tmpl+self.namd_traj_tmpl)):
+            if ((file_n.find("vel") < 0)  and (file_n.find("heat") < 0)) and os.path.isfile(file_n):
+                self.namd.repl_traj.append(file_n)
+                self.namd.names.append(os.path.basename(os.path.dirname(file_n)))
+        logger.info(f"Equilibration trajectories found: {len(self.namd.names)}")
 
         logger.info(f"Dissociation trajectories will be searched using the template: {PRJ_DIR+self.ramd_tmpl+self.ramd_traj_tmpl}")
         for dir_ramd in np.sort(glob.glob(PRJ_DIR+self.ramd_tmpl)):
@@ -158,6 +191,57 @@ class trajectories:
                 self.ramd.repl_traj.append(ramd_list)
                 self.ramd.names.append(os.path.basename(dir_ramd))
                 logger.info(f"{len(ramd_list)} RAMD traj found in {dir_ramd}")
+
+
+    class Namd:
+        """
+                Functions:
+                    __init__(self)
+                    compare_all_namd()
+                    IFP_unify(self,subset = [])
+                    IFP_save(self,subset=[],file="IFP.pkl")
+                Variable:
+                    repl = []
+                    names = [] 
+                    length = []
+                    step = 1
+                    start = 0
+                    contact_collection = []
+                # the next set of parameters are computed by the analysis_all_namd() function
+                    traj = []
+                    contact_collection = []  # this is a container where we will accomulate all protein-ligand contacts
+        """
+        def __init__(self, timestep=1):
+            self.repl_traj = []  # a list of full paths to a equilibation trajectories
+            self.names = []
+            self.length = []
+            self.step = 1
+            self.start = 0
+            self.timestep = timestep
+            # the next set of parameters will be filled by the analysis_all_namd() function
+            self.traj: pd.DataFrame  # an array of Trj_Properties objects for all trajectories in a replica
+            self.contact_collection = []  # this is a container where we will accomulate all protein-ligand contacts
+
+        def compare_all_namd(self):
+            IFP_list = []
+            for j, nmd in enumerate(self.names):
+                for c in self.traj.df_properties[j].columns[1:].tolist():
+                    if c  in IFP_list:
+                        pass
+                    elif c != "WAT":
+                        IFP_list.append(c)
+            all_namd_prop  = pd.DataFrame(np.zeros((len(self.names), len(IFP_list))),
+                                          index=self.names, columns=IFP_list)
+            for j, nmd in enumerate(self.repl_traj):
+                a = self.traj.df_properties[j][self.traj.df_properties[j].columns[1:]].mean(axis=0)
+                for key in a.index:
+                    all_namd_prop.loc[nmd][key] = a.loc[key]
+            fig = plt.figure(figsize=(6, 4))
+            sns.heatmap(all_namd_prop, cmap="Greys", linewidths=.5)
+            plt.show()
+            plt.close(fig)
+            return all_namd_prop
+
 
         ###################################################################
         #
@@ -277,12 +361,13 @@ class trajectories:
             self.pdb = pdb
             self.top = top
             self.timestep = timestep
+            # the next set of parameters will be filled by the analysis_all_namd() function
             self.traj = []   # an array of Trj_Properties objects for wach trajectory in a replica
             self.contact_collection = []  # this is a container where we will accomulate all protein-ligand contacts
 
         ###################################################################
         #
-        # FUNCTION to unify comlumns of a set of  IFP databases for generated from several trajectories
+        # FUNCTION to unify comlumns of a set of  IFP databases for generated from several trajectories  
         #
         ###################################################################
         def IFP_unify(self, subset=None):
@@ -510,6 +595,16 @@ class trajectories:
             plt.show()
             return
 
+#     def createLigand(self, PRJ_DIR, ligand_pdb, ligand_mol2):
+#         return Ligand(PRJ_DIR, ligand_pdb, ligand_mol2)
+# #       return (trajectories.Ligand(PRJ_DIR,ligand_pdb,ligand_mol2))
+
+    def createNamd(self):
+        return trajectories.Namd()
+
+    def createRamd(self, PRJ_DIR, pdb, top, timestep):
+        return trajectories.Ramd(PRJ_DIR, pdb, top, timestep)
+
     # ##############################################################
     # #
     # #  function that analyze a membrane density along z axis in a trajectory 
@@ -677,6 +772,78 @@ class trajectories:
         return u_length, start, rmsd_prot, rmsd_lig, auxi_rmsd, rgyr_prot, rgyr_lig, com_lig, df_prop, df_HB, df_WB
 
 
+
+    ##############################################################
+    #
+    #  function that analyze all NAMD trajectories for a particular compound
+    #  RMSD of protein and ligand, Radius of Gyration, and IFP table are computed for every nth frame
+    #  input parameters - stride and the first snapshot for analysis 
+    #
+    ###############################################################
+    def analysis_all_namd(
+            self,
+            WB_analysis = True,
+            step_analysis=1,
+            start_analysis=0,
+            RE=True,
+            Lipids=None,
+            auxi_selection=None):
+        """
+        Parameters:
+        step_analysis - step to be used to scan over the trajectory
+        start_analysis - starting snapshot for analysis; if start_analysis < 0 - cound from the end of the trajectory
+        WB_analysis - True if water briges has to be traced, default- False
+        Results:
+        """
+        Lipids = [] if Lipids is None else Lipids
+        auxi_selection = [] if auxi_selection is None else auxi_selection
+#        ligands_name,property_list = ligand_analysis(dir_ligand+"/"+self.ligand.ligand_pdb)
+        sel_ligands = self.ligand.ligands_names[0]
+        sel_l = "resname "+self.ligand.ligands_names[0]
+#        mol,ligand_2D = read_ligands(dir_ligand+"/"+ligand_pdb)
+
+        if self.top is not None and self.pdb is not None:
+            ref = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
+        elif self.pdb is not None:
+            ref = mda.Universe(self.prj_dir + self.pdb)
+        else:
+            raise ValueError("No pdb (and/or topology) file provided")
+
+        Rgr0 = ref.select_atoms("protein").radius_of_gyration()
+        for j, (nmd, repl) in enumerate(zip(self.namd.names, self.namd.repl_traj)):
+            logger.info(f"Replica: {repl}")
+            step = max(step_analysis, 1)
+            length, _start, rmsd_prot,rmsd_lig, rmsd_auxi,rgyr_prot, rgyr_lig, com_lig, df_prop, df_HB, df_WB = self.analysis_traj(repl, start_analysis, step, WB_analysis, RE, Lipids, auxi_selection, reference ="ref")
+            df_prop_complete = table_combine(df_HB, df_WB, df_prop, sel_ligands, self.namd.contact_collection)
+            self.namd.length.append((self.timestep/1000)*length)
+            Plot_traj(rmsd_prot, rmsd_lig, rmsd_auxi, rgyr_prot, rgyr_lig, nmd, out_name=None)
+            for contact_name in df_prop.columns.tolist():
+                if contact_name not in self.namd.contact_collection:
+                    self.namd.contact_collection.append(contact_name)
+#            if(j > 0): print("....",len(self.namd.traj),j-1,self.namd.traj[j-1].rmsd_auxi[0][:3])
+            self.namd.traj.append(Trj_Properties())
+#            if(j > 0): print("....",len(self.namd.traj),j-1,self.namd.traj[j-1].rmsd_auxi[0][:3])
+            self.namd.traj[j].step = step
+            self.namd.traj[j].start = start_analysis
+            self.namd.traj[j].stop = length
+            self.namd.traj[j].length = length
+            self.namd.traj[j].df_properties = df_prop_complete
+            self.namd.traj[j].rmsd_prot = rmsd_prot
+            self.namd.traj[j].rmsd_lig = rmsd_lig
+            self.namd.traj[j].rgyr_prot = rgyr_prot
+            self.namd.traj[j].rgyr_lig = rgyr_lig
+            self.namd.traj[j].com_lig = com_lig
+            self.namd.traj[j].rmsd_auxi = rmsd_auxi
+ #           print(j,rmsd_auxi[0][:3],self.namd.traj[j].rmsd_auxi[0][:3])
+ #           if(j > 0): print("....",j-1,self.namd.traj[j-1].rmsd_auxi[0][:3])
+            #Plot_IFP(df_prop_complete,out_name="") # "namd-"+str(j)+".png")
+        return
+
+    ##############################################################
+    #
+    #  function that analyze all NAMD trajectories for a particular compound 
+    #
+    ###############################################################
     def analysis_all_ramd(self,
                           WB_analysis=True,
                           step_analysis=1,
@@ -733,8 +900,12 @@ class trajectories:
                     repli, start_analysis, step, WB_analysis, RE, Lipids, auxi_selection)
 
                 df_prop_complete = table_combine(df_HB,df_WB,df_prop,sel_ligands,self.ramd.contact_collection)
+                self.namd.length.append((self.timestep/1000)*length)
                 Plot_traj(rmsd_prot, rmsd_lig, rmsd_auxi, rgyr_prot, rgyr_lig, rmd, out_name=None)
 
+                for contact_name in df_prop.columns.tolist():
+                    if contact_name not in self.ramd.contact_collection:
+                        self.namd.contact_collection.append(contact_name)
                 self.ramd.traj[j1][j2].step = step
                 self.ramd.traj[j1][j2].start = start
                 self.ramd.traj[j1][j2].stop = length
@@ -747,6 +918,10 @@ class trajectories:
                 self.ramd.traj[j1][j2].rgyr_lig = rgyr_lig
                 self.ramd.traj[j1][j2].com_lig = com_lig
                 self.ramd.traj[j1][j2].rmsd_auxi = rmsd_auxi
+                #except:
+                #    logger.error("IFP either were not generated or could not be stored in the traj object!")
+                #    raise exc
+
         return
 
 
