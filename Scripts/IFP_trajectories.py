@@ -46,6 +46,236 @@ class Trj_Properties:
         self.rmsd_auxi = None
 
 
+class Ramd:
+    """
+        Functions:
+            __init__(self)
+            IFP_unify(self,subset = [])
+            IFP_save(self,subset=[],file="IFP.pkl")
+            bootstrapp(self,t)
+            scan_ramd(self)
+        Variables:
+            repl_traj = []
+            repl_names = [] 
+            length = []
+            replicas_distr = [] # distribution for each replica that is generated in the bootstrapping procedure
+            replicas_distr_raw = [] # length of trajectories in one replica
+            replicas = []  # tauRAMD for each replica
+            replicas_SD = []
+            contact_collection - a complete list of contact residues  
+    """
+    def __init__(self, PRJ_DIR, pdb=None, top=None, timestep=1):
+        #---   # array of replica parameters- each is array of trajectories
+        self.repl_traj = [] #  directories with RAMD simulations for all replicas
+        self.names = [] # name of  replicas
+        self.length = []   # in ns
+        # array of replica parameters
+        self.replicas_distr = [] # distribution of dissociation times  for each replica that is generated in the bootstrapping procedure
+        self.replicas_distr_raw = [] # dissociation times in one replica
+        self.replicas = []  # tauRAMD for each replica
+        self.replicas_SD = []
+        self.tau = None  # computed res.time
+        self.tau_SD = None
+        self.prj_dir = PRJ_DIR
+        self.pdb = pdb
+        self.top = top
+        self.timestep = timestep
+        self.traj = []   # an array of Trj_Properties objects for wach trajectory in a replica
+        self.contact_collection = []  # this is a container where we will accomulate all protein-ligand contacts
+
+    def IFP_unify(self, subset=None):
+        """
+        unify comlumns of a set of IFP databases for generated from several trajectories
+        Parameters:
+        optional - a list of IFP to be used to unify tables of IFP for all compounds
+        Results:
+        """
+        if subset is None:
+            r_subset = self.traj
+        else:
+            r_subset = np.take(self.traj,subset)
+        IFP_list = []
+        for tr_replica in r_subset:
+            for tr_c in tr_replica:
+                for c in tr_c.df_properties.columns.tolist():
+                    if c  in IFP_list:
+                        pass
+                    else:
+                        IFP_list.append(c)
+        for tr_replica in r_subset:
+            for tr_c in tr_replica:
+                to_add = np.setdiff1d(IFP_list, np.asarray(tr_c.df_properties.columns.tolist()))
+                for k in to_add:
+                    tr_c.df_properties[k] = np.zeros(tr_c.df_properties.shape[0],dtype=np.int8)
+                tr_c.df_properties = tr_c.df_properties[np.concatenate((["time"],tr_c.df_properties.columns[tr_c.df_properties.columns != "time"].tolist()))]
+                if "WAT" in tr_c.df_properties.columns.tolist():
+                    tr_c.df_properties = tr_c.df_properties[np.concatenate((tr_c.df_properties.columns[tr_c.df_properties.columns != "WAT"].tolist(),["WAT"]))]
+        self.contact_collection = IFP_list
+        return IFP_list
+
+    def IFP_save(self, file, subset=None):
+        """
+        Parameters:
+        optional - a list of IFP to be used to unify tables of IFP for all compounds
+        Results:
+        """
+        df1 = None
+        if subset is None:
+            r_subset = self.traj
+            n_subset = self.names
+        else:
+            r_subset = np.take(self.traj,subset)
+            n_subset = np.take(self.names,subset)
+        _IFP_list = self.IFP_unify(subset)
+        for tr_replica, tr_name in zip(r_subset, n_subset):
+            for i, tr_c in enumerate(tr_replica):
+                tt = tr_c.df_properties
+                tt["Repl"] = tr_name
+                tt["Traj"] = str(i)
+                tt["RMSDl"] = tr_c.rmsd_lig
+                tt["RMSDp"] = tr_c.rmsd_prot
+                tt["RGyr"] = tr_c.rgyr_lig
+                tt["length"] = tr_c.length
+                tt["COM"] = tr_c.com_lig
+                for k, rmsd_auxi in enumerate(tr_c.rmsd_auxi):
+                    #rmsd_auxi_ls = []
+                    #logger.info(len(rmsd_auxi_ls), len(tr_c.rmsd_lig), len(tr_c.rmsd_lig))
+                    # below, replacement for above nonsense with a lesser nonsense...
+                    logger.info(f"rmsd_auxi={rmsd_auxi}, len(tr_c.rmsd_lig)={len(tr_c.rmsd_lig)}")
+                    tt["Auxi_"+str(k)] = rmsd_auxi
+                df1 = pd.concat([df1, tt])
+                #except:
+                #    logger.critical(f"failed to save properties for the replica {tr_name} since the trajectiry was not analyzed")
+        if df1 is None:
+            raise ValueError("Failed to create database dataframe")
+        df1.to_pickle(file)
+        logger.info(f"Database saved to pickle file {file}")
+        return df1
+
+    def bootstrapp(self,t):
+        """
+        Parameters:
+        t - list of RAMD dissociation times
+        max_shuffle - number of bootstrapping iterations
+        in each iteration alpha = 80% of the list is used
+        Results:
+        """
+        max_shuffle = 500
+        alpha = 0.8
+        sub_set = int(alpha*len(t))
+        tau_bootstr = []
+        if sub_set > 6:
+            for _ in range(max_shuffle):
+                np.random.shuffle(t)
+                t_b = t[:sub_set]
+                # select time when 50% of ligand dissocate
+                t_b_sorted_50 = (np.sort(t_b)[int(len(t_b)/2.0-0.5)] + np.sort(t_b)[int(len(t_b)/2)]) / 2.0
+                tau_bootstr.append(t_b_sorted_50)
+        return tau_bootstr
+
+    def scan_ramd(self):
+        """
+        Parameters: re
+        Results:
+        """
+        #--- read exp data-----------
+        if self.top is not None and self.pdb is not None:
+            u = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
+        elif self.pdb is not None:
+            u = mda.Universe(self.prj_dir + self.pdb)
+        else:
+            raise ValueError("No pdb (and/or topology) file provided")
+        sd_max = 0
+        for rmd, repl in zip(self.names,self.repl_traj):
+            ramd_l = []
+            traj_properties = []
+            for t in repl:  # loop over trajectories in each replica
+                try:
+                    u.load_new(t)
+                except FileNotFoundError:
+                    logger.error(f"Error while Reading a trajectory {t}")
+                if len(u.trajectory) > 2:
+                    ramd_l.append((self.timestep/1000.0)*len(u.trajectory)) # should be 2.0/1000.0 ?
+                traj_properties.append(Trj_Properties())
+            self.length.append(ramd_l)
+            if len(ramd_l)>7:
+                #-------------- bootstrapping procedure
+                distr = self.bootstrapp(ramd_l)
+                self.replicas_distr.append(distr)
+                self.replicas.append(np.mean(distr))
+                self.replicas_SD.append(np.std(distr))
+                self.replicas_distr_raw.append(ramd_l)
+                sd_max = max(sd_max, np.nanmax(np.std(distr)))
+                logger.info(f"{rmd} tau = {np.mean(distr):.3f} +- {np.std(distr):.3f}")
+                logger.debug(f"List of tau from trajs:\n{ramd_l}")
+            else:
+                logger.warning(f"RAMD trajectory set for {rmd} is too small ({len(ramd_l)} traj), tau will not be computed for this replica")
+                self.replicas.append(None)
+                self.replicas_SD.append(None)
+                self.replicas_distr.append([])
+                self.replicas_distr_raw.append([])
+            self.traj.append(traj_properties)
+        #-- compute tauRAMD residence time as an average over all replicas (skip empty replicas)
+        if len(self.replicas) == 0:
+            logger.warning(f"RAMD trajectories were not found in {self.names}")
+        else:
+            # we will estimate final tau RAMD from all replicas as an average (omitting Nans, ie. incomplete simulations)
+            #non_empty  = np.asarray(self.replicas)[np.isnan(np.asarray(self.replicas).astype(float)) == False]
+            non_empty  = np.asarray(self.replicas)[not np.isnan(np.asarray(self.replicas).astype(float))]
+            if len(non_empty)>0:
+                self.tau =  np.nanmean(non_empty)
+                self.tau_SD = max(np.nanstd(non_empty),sd_max)
+
+    def Plot_RAMD(self, tau_lims=(0,0)):
+        """
+        Parameters:
+        lims -  x-limits
+        Returns:
+        plot
+        """
+        lims = tau_lims
+        color = ['r', 'b', 'forestgreen', 'orange', 'lime', 'm', 'teal', 'c', 'yellow', 'goldenrod', 'olive', 'tomato', 'salmon', 'seagreen']
+        meanpointprops = {"linestyle":'--', "linewidth":2.5, "color":'firebrick'}
+        fig = plt.figure(figsize=(18, 2))
+        gs = gridspec.GridSpec(1, 2, width_ratios=[2, 1], wspace=0.1)
+        ax1 = plt.subplot(gs[0])
+        ax2 = plt.subplot(gs[1])
+        time_max = 0
+        for r in self.replicas_distr:
+            if len(r)>0: time_max = max(time_max,np.max(r))
+        x = np.linspace(start=lims[0],stop=lims[1],num=100)
+        for i, (d, _b) in enumerate(zip(self.replicas_distr, self.length)):
+            if self.replicas_distr[i] and len(d) > 2:
+                sns.histplot(d, kde=True, common_norm=True, bins=3, color=color[i], label=self.names[i], ax=ax1)
+                # sns.distplot(d, kde=True, hist = True, norm_hist = True, bins = 3, color =color[i],label=self.names[i], ax = ax1)
+        _ymin, ymax = ax1.get_ylim()
+        replicas_distr = [x for x in self.replicas_distr if x]  # here we eliminate all empty lists
+        if tau_lims == (0,0):
+            lims =(0,1.2*np.max(np.asarray(replicas_distr).flatten()))
+        ax1.set_xlim(lims)
+        try:
+            ax2.set_ylim(lims)
+            ax2.boxplot(self.replicas_distr, tick_labels=self.names, showmeans=True, meanline=True, meanprops=meanpointprops)
+            ax2.plot([0, len(self.names)+1], [self.tau, self.tau], 'k-', lw=3, alpha=0.3)
+            ax2.plot([0, len(self.names)+1], [self.tau-self.tau_SD, self.tau-self.tau_SD], 'k--', lw=3, alpha=0.3)
+            ax2.plot([0, len(self.names)+1], [self.tau+self.tau_SD, self.tau+self.tau_SD], 'k--', lw=3, alpha=0.3)
+        except IndexError:
+            logger.error("Error in the boxplot: there is probably no data for one of the replicas")
+        if self.tau and self.tau_SD:
+            logger.info(f"Average over replicas: tauRAMD =  {np.round(self.tau,3)} +- {np.round(self.tau_SD,3)}")
+            gauss = np.exp(-np.power((x - self.tau)/self.tau_SD, 2.)/2.)
+            ax1.plot(x, ymax*gauss/max(gauss), 'k-', label='total', linewidth=3, alpha=0.3)
+        ax1.legend(ncol=2 if i > 4 else 1)
+        ax2.set_ylabel('tau [ns]', fontsize=12)
+        ax1.set_xlabel('tau [ns]', fontsize=12)
+        ax2.set_xlabel('replica', fontsize=12)
+        try:
+            ax2.set_ylim(0, 1.2*np.max(np.asarray(replicas_distr).flatten()))
+        except ValueError:
+            pass
+        plt.show()
+        plt.close(fig)
+
 class trajectories:
     """
         ligand - object of the class ligand
@@ -143,7 +373,7 @@ class trajectories:
             logger.exception(f"Selection error with this ligand name: {self.ligand.ligands_names[0]}")
             raise exc
 
-        self.ramd = trajectories.Ramd(PRJ_DIR, pdb, top, timestep) 
+        self.ramd = Ramd(PRJ_DIR, pdb, top, timestep)
         self.tau_exp = None
         self.tau_exp_SD = None
         self.type = None
@@ -159,399 +389,13 @@ class trajectories:
                 self.ramd.names.append(os.path.basename(dir_ramd))
                 logger.info(f"{len(ramd_list)} RAMD traj found in {dir_ramd}")
 
-        ###################################################################
-        #
-        # FUNCTION to unify comlumns of a set of IFP databases for generated from several trajectories
-        #
-        ###################################################################
-        def IFP_unify(self,subset = []):
-            """
-            Parameters:
-            optional - a list of IFP to be used to unify tables of IFP for all compounds
-            Results:
-            """
-            if len(subset) == 0: r_subset = self.traj
-            else: r_subset = np.take(self.traj,subset)
-            IFP_list = []
-
-            for j,tr_c in enumerate(r_subset):
-                try:
-                    for c in tr_c.df_properties.columns.tolist():
-                        if c  in IFP_list:    pass
-                        else: IFP_list.append(c)
-                except:
-                    pass
-            for j,tr_c in enumerate(r_subset):
-                try:
-                    to_add = np.setdiff1d(IFP_list, np.asarray(tr_c.df_properties.columns.tolist()))
-                    for k in to_add:
-                        tr_c.df_properties[k] = np.zeros(tr_c.df_properties.shape[0],dtype=np.int8)
-                    tr_c.df_properties = tr_c.df_properties[np.concatenate((["time"],tr_c.df_properties.columns[tr_c.df_properties.columns != "time"].tolist()))]
-                    if "WAT" in tr_c.df_properties.columns.tolist():
-                        tr_c.df_properties = tr_c.df_properties[np.concatenate((tr_c.df_properties.columns[tr_c.df_properties.columns != "WAT"].tolist(),["WAT"]))]
-                except:
-                    pass
-            self.contact_collection = IFP_list
-            return(IFP_list)
-
-        ###################################################################
-        #
-        # Save IFP for a selected replicas of RAMD simulations
-        #
-        ###################################################################
-        def IFP_save(self, file, subset=[]):
-            """
-            Parameters:
-            optional - a list of IFP to be used to unify tables of IFP for all compounds
-            Results:
-            df1 - IFP database in pkl format
-            """
-            df1 = None
-            if len(subset) == 0:
-                r_subset = self.traj
-                n_subset = self.names
-                if len(n_subset) == 0:
-                    logger.critical("IFP were not generated, please check if input data")
-            else:
-                r_subset = np.take(self.traj,subset)
-                n_subset = np.take(self.names,subset)
-                if n_subset.shape[0] == 0:
-                    logger.critical("IFP were not generated, please check if input data")
-            
-            IFP_list = self.IFP_unify(subset)
-            n_auxi = len(r_subset[0].rmsd_auxi)
-            for i,(tr_c,n_replica) in enumerate(zip(r_subset,n_subset)):
-                logger.info(f"# Replica: {i}, {n_replica}")
-                tt = tr_c.df_properties
-                tt["Repl"] = np.repeat(n_replica,tr_c.df_properties.shape[0]) 
-                tt["Traj"] = np.repeat(str(i),tt.shape[0]) 
-                tt["RMSDl"] = tr_c.rmsd_lig
-                tt["RMSDp"] = tr_c.rmsd_prot
-                tt["RGyr"] = tr_c.rgyr_lig
-                tt["length"] = tr_c.length
-                tt["COM"] = tr_c.com_lig
-                
-                for k in range(0, n_auxi):
-                     tt["Auxi_"+str(k)] = tr_c.rmsd_auxi[k]
-                df1 = pd.concat([df1, tt])
-            if  len(r_subset) > 0:
-                df1.to_pickle(file)
-            else:
-                logger.info("No IFP for equilibration simulations were generated")
-            sys.stdout.flush()
-            return df1
-        
-            
-   #-----------------------------------------       
-    class Ramd:
-        """
-            Functions:
-                __init__(self)
-                IFP_unify(self,subset = [])
-                IFP_save(self,subset=[],file="IFP.pkl")
-                bootstrapp(self,t)
-                scan_ramd(self)
-            Variables:
-                repl_traj = []
-                repl_names = [] 
-                length = []
-                replicas_distr = [] # distribution for each replica that is generated in the bootstrapping procedure
-                replicas_distr_raw = [] # length of trajectories in one replica
-                replicas = []  # tauRAMD for each replica
-                replicas_SD = []
-                contact_collection - a complete list of contact residues  
-        """
-        def __init__(self, PRJ_DIR, pdb=None, top=None, timestep=1):
-            #---   # array of replica parameters- each is array of trajectories
-            self.repl_traj = [] #  directories with RAMD simulations for all replicas 
-            self.names = [] # name of  replicas 
-            self.length = []   # in ns 
-            # array of replica parameters
-            self.replicas_distr = [] # distribution of dissociation times  for each replica that is generated in the bootstrapping procedure
-            self.replicas_distr_raw = [] # dissociation times in one replica
-            self.replicas = []  # tauRAMD for each replica
-            self.replicas_SD = []
-            self.tau = None  # computed res.time
-            self.tau_SD = None
-            self.prj_dir = PRJ_DIR
-            self.pdb = pdb
-            self.top = top
-            self.timestep = timestep
-            self.traj = []   # an array of Trj_Properties objects for wach trajectory in a replica
-            self.contact_collection = []  # this is a container where we will accomulate all protein-ligand contacts
-
-        ###################################################################
-        #
-        # FUNCTION to unify comlumns of a set of  IFP databases for generated from several trajectories
-        #
-        ###################################################################
-        def IFP_unify(self, subset=None):
-            """
-            Parameters:
-            optional - a list of IFP to be used to unify tables of IFP for all compounds
-            Results:
-            """
-            if subset is None:
-                r_subset = self.traj
-            else:
-                r_subset = np.take(self.traj,subset)
-            IFP_list = []
-
-            for tr_replica in r_subset:
-                for tr_c in tr_replica:
-                    #try:  # this is in the case when for some trajectory IFPs were not generated for some reasons
-                    for c in tr_c.df_properties.columns.tolist():
-                        if c  in IFP_list:
-                            pass
-                        else:
-                            IFP_list.append(c)
-                    #except:
-                    #    pass
-            for tr_replica in r_subset:
-                for tr_c in tr_replica:
-                    #try:
-                    to_add = np.setdiff1d(IFP_list, np.asarray(tr_c.df_properties.columns.tolist()))
-                    for k in to_add:
-                        tr_c.df_properties[k] = np.zeros(tr_c.df_properties.shape[0],dtype=np.int8)
-                    tr_c.df_properties = tr_c.df_properties[np.concatenate((["time"],tr_c.df_properties.columns[tr_c.df_properties.columns != "time"].tolist()))]
-                    if "WAT" in tr_c.df_properties.columns.tolist():
-                        tr_c.df_properties = tr_c.df_properties[np.concatenate((tr_c.df_properties.columns[tr_c.df_properties.columns != "WAT"].tolist(),["WAT"]))]
-                    #except:
-                    #    pass
-            self.contact_collection = IFP_list
-            return IFP_list
-
-        def IFP_save(self, file, subset=None):
-            """
-            Parameters:
-            optional - a list of IFP to be used to unify tables of IFP for all compounds
-            Results:
-            """
-            df1 = None
-            if subset is None:
-                r_subset = self.traj
-                n_subset = self.names
-            else:
-                r_subset = np.take(self.traj,subset)
-                n_subset = np.take(self.names,subset)
-            IFP_list = self.IFP_unify(subset)
-
-            for tr_replica,tr_name in zip(r_subset,n_subset):
-                for i, tr_c in enumerate(tr_replica):
-                    #try:
-                    tt = tr_c.df_properties
-                    tt["Repl"] = tr_name
-                    tt["Traj"] = str(i)
-                    tt["RMSDl"] = tr_c.rmsd_lig
-                    tt["RMSDp"] = tr_c.rmsd_prot
-                    tt["RGyr"] = tr_c.rgyr_lig
-                    tt["length"] = tr_c.length
-                    tt["COM"] = tr_c.com_lig
-                    for k, rmsd_auxi in enumerate(tr_c.rmsd_auxi):
-                        #rmsd_auxi_ls = []
-                        #logger.info(len(rmsd_auxi_ls), len(tr_c.rmsd_lig), len(tr_c.rmsd_lig))
-                        # below, replacement for above nonsense with a lesser nonsense...
-                        logger.info(f"rmsd_auxi={rmsd_auxi}, len(tr_c.rmsd_lig)={len(tr_c.rmsd_lig)}")
-                        tt["Auxi_"+str(k)] = rmsd_auxi
-                    df1 = pd.concat([df1, tt])
-                    #except:
-                    #    logger.critical(f"failed to save properties for the replica {tr_name} since the trajectiry was not analyzed")
-            df1.to_pickle(file)
-
-            logger.info(f"Database saved to pickle file {file}")
-
-            return df1
-
-        ##############################################################
-        #
-        #    bootstrapping procedure for estimation of the residence time based on the set of RAMD dissociation times
-        #
-        ###############################################################
-        def bootstrapp(self,t):
-            """
-            Parameters:
-            t - list of RAMD dissociation times
-            max_shuffle - number of bootstrapping iterations
-            in each iteration alpha = 80% of the list is used
-            Results:
-            """
-            max_shuffle = 500
-            alpha = 0.8
-            sub_set = int(alpha*len(t))        
-            tau_bootstr = []
-            if sub_set > 6:
-                for i in range(1,max_shuffle):
-                    np.random.shuffle(t)
-                    t_b = t[:sub_set]
-                    # select time when 50% of ligand dissocate
-                    t_b_sorted_50 = (np.sort(t_b)[int(len(t_b)/2.0-0.5)]+np.sort(t_b)[int(len(t_b)/2)])/2.0
-                    tau_bootstr.append(t_b_sorted_50)
-            return tau_bootstr 
-
-
-        ##############################################################
-        #
-        #   function that analyze all RAMD trajectories for a particular compound and compute its residence time  
-        #
-        ###############################################################
-        def scan_ramd(self):
-            """
-            Parameters: re
-            Results:
-            """
-            #--- read exp data-----------
-
-            if self.top is not None and self.pdb is not None:
-                u = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
-            elif self.pdb is not None:
-                u = mda.Universe(self.prj_dir + self.pdb)
-            else:
-                raise ValueError("No pdb (and/or topology) file provided")
-            sd_max = 0
-
-            for i, (rmd, repl) in enumerate(zip(self.names,self.repl_traj)): # loop over all replicas
-                ramd_l = []
-                traj_properties = []
-                for j,t in enumerate(repl):  # loop over trajectories in each replica
-                    try:
-                        u.load_new(t)
-                    except:
-                        logger.error(f"Error while Reading a trajectory {t}")
-                        pass
-                    if len(u.trajectory) > 2:
-                        ramd_l.append((self.timestep/1000.0)*len(u.trajectory)) # should be 2.0/1000.0 ?
-                    traj_properties.append(Trj_Properties())
-                self.length.append(ramd_l)
-                if len(ramd_l) > 7:
-                    #-------------- bootstrapping procedure
-                    distr = self.bootstrapp(ramd_l)
-                    self.replicas_distr.append(distr)
-                    self.replicas.append(np.mean(distr))
-                    self.replicas_SD.append(np.std(distr))
-                    self.replicas_distr_raw.append(ramd_l)
-                    sd_max = max(sd_max, np.nanmax(np.std(distr)))
-                    logger.info(f"{rmd} tau = {np.mean(distr):.3f} +- {np.std(distr):.3f}")
-                    logger.debug(f"List of tau from trajs:\n{ramd_l}")
-                else:
-                    logger.warning(f"RAMD trajectory set for {rmd} is too small ({len(ramd_l)} traj), tau will not be computed for this replica")
-                    self.replicas.append(None)
-                    self.replicas_SD.append(None)
-                    self.replicas_distr.append([])
-                    self.replicas_distr_raw.append([])
-
-                self.traj.append(traj_properties)
-            #-- compute tauRAMD residence time as an average over all replicas (skip empty replicas)
-            if len(self.replicas) == 0:
-                logger.warning(f"RAMD trajectories were not found in {self.names}")
-            else:
-                # we will estimate final tau RAMD from all replicas as an average (omitting Nans, ie. incolplete simulations)
-                non_empty  = np.asarray(self.replicas)[np.isnan(np.asarray(self.replicas).astype(float)) == False]
-                if len(non_empty)>0:
-                    self.tau =  np.nanmean(non_empty)
-                    self.tau_SD = max(np.nanstd(non_empty),sd_max)
-            return
-
-        ########################################
-        #
-        #     PLOT RAMD analysis for a particular ligand
-        #
-        ########################################
-
-        def Plot_RAMD(self, tau_lims=(0,0)):
-            """
-            Parameters:
-            lims -  x-limits
-            Returns:
-            plot
-            """
-            lims = tau_lims
-            color = ['r','b','forestgreen','orange','lime','m','teal','c','yellow','goldenrod','olive','tomato','salmon','seagreen']
-            meanpointprops = dict(linestyle='--', linewidth=2.5, color='firebrick')
-            fig = plt.figure(figsize=(18, 2))
-            gs = gridspec.GridSpec(1, 2, width_ratios=[2, 1],wspace=0.1)
-            ax1 = plt.subplot(gs[0])
-            ax2 = plt.subplot(gs[1])
-            time_max = 0
-            for r in self.replicas_distr:
-                if len(r)>0: time_max = max(time_max,np.max(r))
-            x = np.linspace(start=lims[0],stop=lims[1],num=100)
-            for i,(d, b) in enumerate(zip(self.replicas_distr,self.length)):
-                if (self.replicas_distr[i] and len(d) > 2):
-                    sns.distplot(d, kde=True, hist = True, norm_hist = True, bins = 3, color =color[i],label=self.names[i], ax = ax1);   
-                    ymin, ymax = ax1.get_ylim()
-
-            replicas_distr = [x for x in self.replicas_distr if x]  # here we eliminate all empty lists
-
-            if tau_lims == (0,0):
-                lims =(0,1.2*np.max(np.asarray(replicas_distr).flatten()))
-
-            ax1.set_xlim(lims)
-            try:
-                ax2.set_ylim(lims)
-                ax2.boxplot(self.replicas_distr,labels=self.names,showmeans=True, meanline=True,meanprops=meanpointprops) 
-                ax2.plot([0,len(self.names)+1], [self.tau,self.tau], 'k-', lw=3,alpha=0.3)
-                ax2.plot([0,len(self.names)+1], [self.tau-self.tau_SD,self.tau-self.tau_SD], 'k--', lw=3,alpha=0.3)
-                ax2.plot([0,len(self.names)+1], [self.tau+self.tau_SD,self.tau+self.tau_SD], 'k--', lw=3,alpha=0.3)
-            except:
-                logger.error("Error in the boxplot: there is probably no data for one of the replicas")
-                pass
-            if self.tau and self.tau_SD:
-                logger.info(f"Average over replicas: tauRAMD =  {np.round(self.tau,3)} +- {np.round(self.tau_SD,3)}")
-                gauss = np.exp(-np.power((x - self.tau)/self.tau_SD, 2.)/2.)
-                ax1.plot(x,ymax*gauss/max(gauss), 'k-', label='total', linewidth=3,alpha=0.3)
-            ax1.legend(ncol=2 if i > 4 else 1)
-            ax2.set_ylabel('tau /ns', fontsize=12)
-            ax1.set_xlabel('tau /ns', fontsize=12)
-            ax2.set_xlabel('replica', fontsize=12)
-            try:
-                ax2.set_ylim(0, 1.2*np.max(np.asarray(replicas_distr).flatten()))
-            except:
-                pass
-            plt.show()
-            return
-
-    # ##############################################################
-    # #
-    # #  function that analyze a membrane density along z axis in a trajectory 
-    # #
-    # ###############################################################
-
-    # def mambrane_traj(self,traj,start_analysis,step_analysis):
-    #     """
-    #     Parameters:
-    #     step_analysis - step to be used to scan over the trajectory
-    #     start_analysis - starting snapshot for analysis; if
-    #     start_analysis < 0 - count from the end of the trajectory
-    #     if(0 < start_analysis < 1) -  a fraction of the trajectory = start_analysis will be skipped
-    #     traj - location and name of the trajectory to be analyzed   
-        
-    #     Results:
-    #     u_length - total number of fraimes in the trajectory
-    #     """
-    #     sel_ligands = self.ligand.ligands_names[0]
-    #     ref = mda.Universe(self.prj_dir+self.pdb)
-    #     Rgr0 = ref.select_atoms("protein").radius_of_gyration() 
-    #     all_atoms = ref.select_atoms("not type H")
-    #     zmin = 100
-
-                                       
-
-    #     return
-
-    ##############################################################
-    #
-    #  function that analyze a trajectory
-    #  RMSD of protein and ligand, Radius of Gyration, and IFP table are computed for every nth frame
-    #  input parameters - stride and the first snapshot for analysis 
-    #
-    ###############################################################
 
     def analysis_traj(self, traj, start_analysis, step_analysis, WB_analysis, RE, Lipids, auxi_selection=None, reference="ref"):
         """
         Parameters:
         step_analysis - step to be used to scan over the trajectory
         start_analysis - starting snapshot for analysis; if start_analysis < 0, count from the end of the trajectory
-        if(0 < start_analysis < 1) -  a fraction of the trajectory = start_analysis will be skipped
+        if (0 < start_analysis < 1) -  a fraction of the trajectory = start_analysis will be skipped
         WB_analysis - True if water briges has to be traced, default- False
         RE
         Lipids
@@ -626,7 +470,7 @@ class trajectories:
         auxi_rmsd = []
         for auxi in auxi_selection:
             # NOTE: this was found like that, it's a bit strange, the else path shoud not work,
-            # but in my use-cases I never reached this code-path, so... 
+            # but in my use-cases I never reached this code-path, so...
             logger.warning("GOING THROUGH A NOT-TESTED CODE-PATH WITH POSSIBLE ERRORS, WATCH OUT!")
             if len(auxi) > 2:  # this is a check if a single string or a list of strings is given
                 selection = selection + " or " + auxi
@@ -676,7 +520,6 @@ class trajectories:
 
         return u_length, start, rmsd_prot, rmsd_lig, auxi_rmsd, rgyr_prot, rgyr_lig, com_lig, df_prop, df_HB, df_WB
 
-
     def analysis_all_ramd(self,
                           WB_analysis=True,
                           step_analysis=1,
@@ -698,8 +541,6 @@ class trajectories:
         auxi_selection = [] if auxi_selection is None else auxi_selection
 
         sel_ligands = self.ligand.ligands_names[0]
-        sel_l = "resname "+self.ligand.ligands_names[0]
-
 
         if self.top is not None and self.pdb is not None:
             ref = mda.Universe(self.prj_dir + self.top, self.prj_dir + self.pdb)
@@ -707,8 +548,8 @@ class trajectories:
             ref = mda.Universe(self.prj_dir + self.pdb)
         else:
             raise ValueError("Need a pdb or top+pdb file(s) in input for reference")
-        
-        Rgr0 = ref.select_atoms("protein").radius_of_gyration()
+
+        _Rgr0 = ref.select_atoms("protein").radius_of_gyration()
 
         if len(repl_list) > 0 : repl_scan =  repl_list
         else:    repl_scan = range(0,len(self.ramd.repl_traj))
@@ -716,11 +557,6 @@ class trajectories:
             rmd = self.ramd.names[j1]
             repl = self.ramd.repl_traj[j1]
             logger.info(f"Replica {j1}: {rmd}")
-            repl_df_properties = []
-            repl_rmsd_prot = []
-            repl_rmsd_lig = []
-            repl_Rgr_prot = []
-            repl_Rgr_lig = []
             if len(self.ramd.traj) < 1:
                 logger.error("RAMD trajectories must be loaded first using the function ramd.scan_ramd() (trajectory class function)")
                 sys.exit()
@@ -728,18 +564,15 @@ class trajectories:
             for j2, repli in enumerate(repl):
                 logger.info(f"traj {j2}, file {repli}")
                 step = max(step_analysis, 1)
-                #try:
                 length, start, rmsd_prot, rmsd_lig, rmsd_auxi, rgyr_prot, rgyr_lig, com_lig, df_prop, df_HB, df_WB = self.analysis_traj(
                     repli, start_analysis, step, WB_analysis, RE, Lipids, auxi_selection)
 
                 df_prop_complete = table_combine(df_HB,df_WB,df_prop,sel_ligands,self.ramd.contact_collection)
-                Plot_traj(rmsd_prot, rmsd_lig, rmsd_auxi, rgyr_prot, rgyr_lig, rmd, out_name=None)
-
+                Plot_traj(rmsd_prot, rmsd_lig, rmsd_auxi, rgyr_prot, rgyr_lig)
                 self.ramd.traj[j1][j2].step = step
                 self.ramd.traj[j1][j2].start = start
                 self.ramd.traj[j1][j2].stop = length
                 self.ramd.traj[j1][j2].length = length
-
                 self.ramd.traj[j1][j2].df_properties = df_prop_complete
                 self.ramd.traj[j1][j2].rmsd_prot = rmsd_prot
                 self.ramd.traj[j1][j2].rmsd_lig = rmsd_lig
@@ -747,7 +580,6 @@ class trajectories:
                 self.ramd.traj[j1][j2].rgyr_lig = rgyr_lig
                 self.ramd.traj[j1][j2].com_lig = com_lig
                 self.ramd.traj[j1][j2].rmsd_auxi = rmsd_auxi
-        return
 
 
 class  Ligand:
@@ -865,7 +697,7 @@ class  Ligand:
         logger.info(f"Atoms found in the MOL2 file:\n{list_labels}")
         return mol, list_labels, resnames
 
-    def ligand_PDB(self,ligand_pdb):
+    def ligand_PDB(self, ligand_pdb):
         """
         Parameters:
         ligand_pdb - ligand structure file  in the PDB format
@@ -874,47 +706,32 @@ class  Ligand:
         list_labels - list of atom names
         resnames - list of residue names (for all atoms)
         """
-        ff=open(ligand_pdb,"r")
-        lines = ff.readlines()
-        ff.close()
         list_labels = []
         resnames = []
-
-        for line in lines:
-            if line.split()[0] == 'ATOM':
-                list_labels.append(line.split()[2])
-                resnames.append(line.split()[3])
-        
+        with open(ligand_pdb, "r") as ff:
+            for line in ff:
+                if line.split()[0] == 'ATOM':
+                    list_labels.append(line.split()[2])
+                    resnames.append(line.split()[3])
         mol = Chem.MolFromPDBFile(ligand_pdb, removeHs=False)
         return mol, list_labels, resnames
-        ########################################
-        #
-        #     get ligand chemical properties for Fluorine from PDB file only
-        #
-        ########################################
-    def ligand_PDB_F(self,ligand_pdb):
+
+    def ligand_PDB_F(self, ligand_pdb):
         """
         Parameters:
         ligand_pdb - ligand structure file  in the PDB format
         Results:
         list_labels - list of  names for F atoms found
         """
-        ff=open(ligand_pdb,"r")
-        lines = ff.readlines()
-        ff.close()
         list_labels = []
-
-        for line in lines:
-            if len(line.split()) > 5:
-                if (line.split()[0] == 'ATOM' or line.split()[0] == 'HETATM'):
-                    if (line.split()[2][0] == "F"):
-                        list_labels.append(line.split()[2])
+        with open(ligand_pdb, "r") as ff:
+            for line in ff:
+                if len(line.split()) > 5:
+                    if (line.split()[0] == 'ATOM' or line.split()[0] == 'HETATM'):
+                        if line.split()[2][0] == "F":
+                            list_labels.append(line.split()[2])
         return list_labels
-        ########################################
-        #
-        #     get ligand chemical properties for Fluorine from PDB file only
-        #
-        ########################################
+
     def ligand_Mol2_F_PO3(self, ligand_mol2):
         """
         Parameters:
@@ -923,49 +740,42 @@ class  Ligand:
         list_labels_P - list of  names for oxygen atoms bound to P
         list_labels - list of names for F atoms found
         """
-        ff=open(ligand_mol2,"r")
-        lines = ff.readlines()
-        ff.close()
         list_labels_O = []
         list_labels_P = []
         list_labels_F = []
         list_atoms = []
         list_P = []
-        resnames = []
         start = 0
-        for line in lines:
-            key = line.split()
-            if line.find("<TRIPOS>ATOM") >= 0: start = 1
-            elif line.find("<TRIPOS>BOND") >= 0: start = 2
-            elif line.find("<TRIPOS>SUBSTRUCTURE") >= 0: break
-            else:
-                if start == 1: 
-                    list_atoms.append(key[1]) 
-                    if(key[1][0]) == "P":
-                        list_P.append(key[0])
-                        list_labels_P.append(key[1])
-                    if(key[1][0]) == "F":
-                        list_labels_F.append(key[1])
-                if start == 2: 
-                    for P in list_P:
-                        if int(key[1]) == int(P):
-                            if list_atoms[int(key[2])-1][0] == 'O':
-                                if list_atoms[int(key[2])-1] not in list_labels_O:
-                                    list_labels_O.append(list_atoms[int(key[2])-1])
-                        if int(key[2]) == int(P):
-                            if list_atoms[int(key[1])-1][0] == 'O':
-                                if list_atoms[int(key[1])-1] not in list_labels_O:
-                                    list_labels_O.append(list_atoms[int(key[1])-1])
-        
+        with open(ligand_mol2, "r") as ff:
+            for line in ff:
+                k = line.split()
+                if line.find("<TRIPOS>ATOM") >= 0:
+                    start = 1
+                elif line.find("<TRIPOS>BOND") >= 0:
+                    start = 2
+                elif line.find("<TRIPOS>SUBSTRUCTURE") >= 0:
+                    break
+                else:
+                    if start == 1:
+                        list_atoms.append(k[1])
+                        if k[1][0] == "P":
+                            list_P.append(k[0])
+                            list_labels_P.append(k[1])
+                        if k[1][0] == "F":
+                            list_labels_F.append(k[1])
+                    if start == 2:
+                        for P in list_P:
+                            if int(k[1]) == int(P):
+                                if list_atoms[int(k[2])-1][0] == 'O':
+                                    if list_atoms[int(k[2])-1] not in list_labels_O:
+                                        list_labels_O.append(list_atoms[int(k[2])-1])
+                            if int(k[2]) == int(P):
+                                if list_atoms[int(k[1])-1][0] == 'O':
+                                    if list_atoms[int(k[1])-1] not in list_labels_O:
+                                        list_labels_O.append(list_atoms[int(k[1])-1])
         return list_labels_F, list_labels_O, list_labels_P
 
-
-        ########################################
-        #
-        #     get ligand chemical properties from PDB file only
-        #
-        ########################################
-    def ligand_properties(self,mol,list_labels):
+    def ligand_properties(self, mol, list_labels):
         """
         Parameters:
         mol - RDKit molecular object
@@ -990,56 +800,6 @@ class  Ligand:
                 properties_list[prop].append(list_labels[at_indx[0]])
         return properties_list, ligand_2D
 
-        ########################################
-        #
-        #     correct PDB file (name and position of hydrogen atoms) to make it readable by RDKit
-        #
-        ########################################
-    def rename_H(self,ligand_H_name,ligand_H_name_new = ""):
-        """
-        rename hydrogen atoms in a ligand file generated by openbabel ( openbabel generats all hydrogen as H)
-        remove connectivity lines
-        adjust position of hydrogen atom names so that H always occupies 14th position (requiered by Rdkit)
-        Parameters:
-        ligand pdb file
-        Returns:
-         name of the ligand 
-         rewrite ligand structure
-        """
-        ff=open(ligand_H_name,"r")
-        lines = ff.readlines()
-        ff.close()
-        lig = []
-        hi = 1
-        for line in lines:
-            key = line.split()
-            if len(line) > 20:
-                if (line[12:16].strip()[0] == "H") or (line[12:13] != " "):
-                    s = list(line)
-                    if line[12:16].strip() == "H": new_name = "H"+str(hi)
-                    else: new_name =  line[12:16].strip()
-                    s[12:17] = str(" %-4s" %(new_name))
-                    hi += 1
-                    line = "".join(s)
-                if line.split()[0] == "ATOM" or line.split()[0] == "HETATM":   # we will skip connectivity lines
-                    lig.append(line.replace("HETATM","ATOM  "))
-                    resname = line[16:20].strip()
-
-        if ligand_H_name_new == "": ligand_H_name_new = ligand_H_name
-
-        if len(lig) > 0:
-            with open(ligand_H_name_new, "w") as ff:
-                for p in lig:
-                    ff.write(p)
-        return
-        ##########################################################################################################
-
-#######################################################################
-#
-#     FUNCTION FOR SUPERIMPOSISION of THE TRAJECTRY FRAMES TO A REFERENCE STRUCTURE
-#
-#######################################################################
-
 def superimpose_traj(ref, u, sel_list=None):
     """
     Parameters:
@@ -1052,28 +812,19 @@ def superimpose_traj(ref, u, sel_list=None):
     ur = ref
     sel_list = [] if sel_list is None else sel_list
     ref_CA = ur.select_atoms("name CA")
-    ref0 = ref_CA.positions - ref_CA.center_of_mass() 
-
+    ref0 = ref_CA.positions - ref_CA.center_of_mass()
     u_CA = u.select_atoms("name CA")
     u.atoms.translate(-u_CA.center_of_mass())
     u0 =  u_CA.positions - u_CA.center_of_mass()
     R, _rmsd = align.rotation_matrix(u0, ref0)  # compute rotation matrix
     u.atoms.rotate(R)
     u.atoms.translate(ref_CA.center_of_mass()) # translate back to the old center of mass position
-
     rmsd_list = []
     for s in sel_list:
         rmsd_list.append(rms.rmsd(u.select_atoms(s).positions, ur.select_atoms(s).positions))
-
     return rmsd_list
 
-#######################################################################
-#
-#     FUNCTION FOR PUTTING SYSTEM BACK INTO A PB BOX
-#
-#######################################################################
-
-def pbc(u,Rgr0):
+def pbc(u, Rgr0):
     """
     Parameters:
     as a check if the transformation is correct we compare radius of gyration with the reference one
@@ -1083,29 +834,19 @@ def pbc(u,Rgr0):
     """
     u_CA = u.select_atoms("name CA")
     sel_p = "protein"
-
     # getting all system elements back to the box; it is important to repeat this twice in the case when protein is splitted into two parts
     u.atoms.translate(-u_CA.center_of_mass()+0.5*u.dimensions[0:3])
-    u.atoms.pack_into_box(box=u.dimensions) 
+    u.atoms.pack_into_box(box=u.dimensions)
     u.atoms.translate(-u_CA.center_of_mass()+0.5*u.dimensions[0:3])
-    u.atoms.pack_into_box(box=u.dimensions) 
-    Rgr = u.select_atoms(sel_p).radius_of_gyration()      
+    u.atoms.pack_into_box(box=u.dimensions)
+    Rgr = u.select_atoms(sel_p).radius_of_gyration()
     if Rgr > Rgr0*1.1:
-#        print("Radius of gyration is too large: %s  of that in the first frame; Try to pack system back into a box once more " %(Rgr/Rgr0)) 
         u.atoms.translate(-u_CA.center_of_mass()+0.5*u.dimensions[0:3])
-        u.atoms.pack_into_box(box=u.dimensions) 
-        Rgr = u.select_atoms(sel_p).radius_of_gyration()  
-#        print("Radius of gyration is now: %s  of the first frame" %(Rgr/Rgr0)) 
-    if Rgr > Rgr0*1.1:
+        u.atoms.pack_into_box(box=u.dimensions)
+        Rgr = u.select_atoms(sel_p).radius_of_gyration()
+    if Rgr>Rgr0*1.1:
         logger.info(f"failed to pack the system back into a box radius of gyration is too large: {Rgr/Rgr0:.3f} of that in the first frame")
     return Rgr
-
-
-#######################################################################
-#
-#     FUNCTION FOR READING LIGAND structure in PDB format USING RDKit
-#
-#######################################################################
 
 def read_ligands(ligand_pdb):
     """
@@ -1119,82 +860,60 @@ def read_ligands(ligand_pdb):
     mol = Chem.MolFromPDBFile(tmp_name, removeHs=False)
     t1 = Chem.MolFromSmiles(Chem.MolToSmiles(mol))
     return mol, t1
-###############################################################################
-#
-#   FUNCTION that renames hydrogen atoms in a ligand file generated by openbabel (openbabel generats all hydrogen as H)
-#   remove connectivity lines
-#   adjust position of hydrogen atom names so that H always occupies 14th position (requiered by Rdkit)
-#
-###############################################################################
-def rename_H(ligand_H_name,ligand_H_name_new = ""):
+
+def rename_H(ligand_H_name, ligand_H_name_new=None) -> str:
     """
-    Parameters:
-    ligand pdb file
-    Returns:
-     name of the ligand 
-     rewrite ligand structure
+    Function that:
+        - rename H atoms in a ligand pdb file generated by openbabel (openbabel generats all hydrogen as H)
+        - remove connectivity lines
+        - adjust position of hydrogen atom names so that H always occupies 14th position (requiered by Rdkit)
     """
-    ff=open(ligand_H_name,"r")
-    lines = ff.readlines()
-    ff.close()
+    ligand_H_name_new = ligand_H_name if ligand_H_name_new is None else ligand_H_name_new
+    resname = None
     lig = []
     hi = 1
-    for line in lines:
-        key = line.split()
-        if len(line) > 20:
-            if ((line[12:16].strip()[0] == "H") or (line[12:13] != " ")):
-                s = list(line)
-                if line[12:16].strip() == "H":
-                    new_name = "H"+str(hi)
-                else:
-                    new_name =  line[12:16].strip()
-                s[12:17] = str(" %-4s" %(new_name))
-                hi += 1
-                line = "".join(s)
-            if line.split()[0] == "ATOM" or line.split()[0] == "HETATM":   # we will skip connectivity lines
-                lig.append(line.replace("HETATM", "ATOM  "))
-                resname = line[16:20].strip()
+    with open(ligand_H_name, "r") as ff:
+        for line in ff:
+            if len(line)>20:
+                if ((line[12:16].strip()[0] == "H") or (line[12:13] != " ")):
+                    s = list(line)
+                    if line[12:16].strip() == "H":
+                        new_name = "H" + str(hi)
+                    else:
+                        new_name =  line[12:16].strip()
+                    s[12:17] = f"{new_name:<4}"
+                    hi += 1
+                    line = "".join(s)
+                if line.split()[0] == "ATOM" or line.split()[0] == "HETATM":
+                    lig.append(line.replace("HETATM", "ATOM  "))
+                    resname = line[16:20].strip()
 
-    if ligand_H_name_new == "":
-        ligand_H_name_new = ligand_H_name
     if len(lig) > 0:
-        ff=open(ligand_H_name_new,"w")
-        for p in lig:  ff.write(p)
-        ff.close()
+        with open(ligand_H_name_new, "w") as ff:
+            for p in lig:
+                ff.write(p)
+    if resname is None:
+        raise ValueError(f"Failed renaming H in file {ligand_H_name}")
     return resname
-
-#######################################################################
-#
-#      FUNCTION FOR READING LIGAND sctucture in mol2 format USING RDKit
-#
-#######################################################################
 
 def read_ligands_mol2(ligand_mol2):
     """
     Parameters:
-    ligand mol2 file - IMPORTANT: mol2 file created by antechamber does not work! created by MOE works
+    - ligand mol2 file; NB: mol2 file created by antechamber does not work! created by MOE works
     Returns:
-    Rkit molecular object for the ligand and ligand image
+    - Rkit molecular object for the ligand and ligand image
     """
-    mol = Chem.rdmolfiles.MolFromMol2File(ligand_mol2,removeHs=False)
+    mol = Chem.rdmolfiles.MolFromMol2File(ligand_mol2, removeHs=False)
     try:
         sm = Chem.MolToSmiles(mol)
         t1 =Chem.MolFromSmiles(sm)
         return mol, t1
-    except:
+    except ValueError:
         logger.error(f"ERROR in mol2 file {ligand_mol2}")
         return mol, None
 
-#######################################################################
-#
-#      FUNCTION FOR READING atom labels from mol2 file
-#
-#######################################################################
 def read_ligands_mol2_AtomLabels(ligand_mol2):
-    """
-    Parameters:
-    Returns:
-    """
+
     radius = 0
     list_labels = []
     ff=open(ligand_mol2,"r")
@@ -1205,9 +924,9 @@ def read_ligands_mol2_AtomLabels(ligand_mol2):
     list_pos = []
     for line in lines:
         key = line.split()
-        if line.find("<TRIPOS>ATOM") >= 0:
+        if line.find("<TRIPOS>ATOM")>=0:
             start = True
-        elif line.find("<TRIPOS>BOND") >= 0:
+        elif line.find("<TRIPOS>BOND")>=0:
             start = False
         else:
             if start:
@@ -1217,89 +936,67 @@ def read_ligands_mol2_AtomLabels(ligand_mol2):
     center = np.mean(np.asarray(list_pos), axis=1)[0]
     radius=max(np.sum(np.abs(np.asarray(list_pos)-center)**2,axis=1)**0.5)
     return list_labels, list_resname, radius
-#######################################################################
-#
-#      FUNCTION FOR READING atom labels from pdb file
-#
-#######################################################################
+
 def read_ligands_pdb_AtomLabels(ligand_pdb):
-    """
-    Parameters:
-    Returns:
-    """
     radius = 0
     list_labels = []
     list_resname = []
     list_pos = []
-    ff=open(ligand_pdb,"r")
-    lines = ff.readlines()
-    ff.close()
-    for line in lines:
-        key = line.split()
-        if key[0] == 'ATOM': 
-            list_labels.append(key[2]) 
-            list_resname.append(key[3])
-            try:
-                list_pos.append([float(key[5]),float(key[6]),float(key[7])])
-            except:
-                logger.warning(f"Format error in {ligand_pdb}. Ligand pdb file should not contain chain infromation")
+    with open(ligand_pdb, "r") as ff:
+        for line in ff:
+            key = line.split()
+            if key[0]=='ATOM':
+                list_labels.append(key[2])
+                list_resname.append(key[3])
+                try:
+                    list_pos.append([float(key[5]),float(key[6]),float(key[7])])
+                except (IndexError, ValueError):
+                    logger.warning(f"Format error in {ligand_pdb}. Ligand pdb file should not contain chain infromation")
     center = np.mean(np.asarray(list_pos),axis=1)[0]
     radius=max(np.sum(np.abs(np.asarray(list_pos)-center)**2,axis=1)**0.5)
-    return (list_labels,list_resname,radius)
+    return list_labels, list_resname, radius
 
+# def  ligand_properties(ligand_pdb, ligand_mol2):
+#     """
+#     ligand_pdb - ligand structure file  in the PDB format
+#     ligand_mol2 - ligand structure file  in the Mol2 format (not all mol2 format work, but generated by MOE does)
+#     """
+#     with open(ligand_pdb,"r") as ff:
+#         list_labels = [l.split()[2] for l in ff.readlines() if l.split()[0] in ['ATOM', "HETATM"]]
 
-########################################
-#
-#     get ligand chemical properties
-#
-########################################
-def  ligand_properties(ligand_pdb, ligand_mol2):
-    """
-    ligand_pdb - ligand structure file  in the PDB format
-    ligand_mol2 - ligand structure file  in the Mol2 format (not all mol2 format work, but generated by MOE does)
-    """
-    with open(ligand_pdb,"r") as ff:
-        list_labels = [
-            l.split()[2] for l in ff.readlines() if line.split()[0] in ['ATOM', "HETATM"]
-            ]
+#     if not os.path.exists(ligand_mol2):
+#         logger.warning("MOL2 does not exist; ligand properties will be derived from the PDB file i.e. aromatic properties will be missed")
 
-    if not os.path.exists(ligand_mol2):
-        logger.warning("MOL2 does not exist; ligand properties will be derived from the PDB file i.e. aromatic properties will be missed")
+#     mol = Chem.rdmolfiles.MolFromMol2File(
+#         ligand_mol2 if os.path.exists(ligand_mol2) else ligand_pdb,
+#         removeHs=False)
 
-    mol = Chem.rdmolfiles.MolFromMol2File(
-        ligand_mol2 if os.path.exists(ligand_mol2) else ligand_pdb,
-        removeHs=False)
+#     fdefName = os.path.join(RDConfig.RDDataDir, 'BaseFeatures.fdef')
+#     factory = Chem.ChemicalFeatures.BuildFeatureFactory(fdefName)
+#     feats = factory.GetFeaturesForMol(mol)
 
-    fdefName = os.path.join(RDConfig.RDDataDir,'BaseFeatures.fdef')
-    factory = Chem.ChemicalFeatures.BuildFeatureFactory(fdefName)
-    feats = factory.GetFeaturesForMol(mol)
+#     properties_list = {}
+#     for f in feats:
+#         prop = f.GetFamily()  #  get property name
+#         at_indx  = list(f.GetAtomIds())  # get atom index
+#         if prop not in properties_list:
+#             properties_list[prop] = []
+#         if len(at_indx) > 0:
+#             for l in at_indx:
+#                 properties_list[prop].append(list_labels[l])
+#         else:
+#             properties_list[prop].append(list_labels[at_indx[0]])
+#     return properties_list, mol
 
-    properties_list = {}
-    for f in feats:
-        prop = f.GetFamily()  #  get property name
-        at_indx  = list(f.GetAtomIds())  # get atom index
-        if prop not in properties_list.keys():
-            properties_list[prop] = []
-        if len(at_indx) > 0:
-            for l in at_indx:
-                properties_list[prop].append(list_labels[l])
-        else:
-            properties_list[prop].append(list_labels[at_indx[0]])
-    return properties_list, mol
-
-########################################
-#
-#     PLOT Trajectory analysis (RMSD, radius of gyration) for protein and ligand
-#
-########################################
-
-def Plot_traj(rmsd_prot, rmsd_lig, auxi_rmsd, rgyr_prot, rgyr_lig, name, out_name=None):
+def Plot_traj(rmsd_prot, rmsd_lig, auxi_rmsd, rgyr_prot, rgyr_lig, out_name=None):
     """
     Parameters:
     Returns:
     """
     color = ['forestgreen','lime','m','c','teal','orange','yellow','goldenrod','olive','tomato','salmon','seagreen']
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 3))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 3))
+    assert isinstance(axes, np.ndarray)
+    ax1, ax2 = axes
     ax1.plot(rmsd_prot, label="protein")
     ax1.plot(rmsd_lig, label="ligand", color="red")
     max_value = max(np.max(np.asarray(rmsd_prot)), np.max(np.asarray(rmsd_lig)))
@@ -1327,21 +1024,17 @@ def Plot_traj(rmsd_prot, rmsd_lig, auxi_rmsd, rgyr_prot, rgyr_lig, name, out_nam
         fig.savefig(out_name)
     plt.close(fig)
 
-    return
-
-########################################
-#
-#     PLOT tauRAMD evaluation for a set of compounds with available exp.data
-#
-########################################
-def PLOT_tauRAMD_dataset(tr,tr_name = None,types_list = [""],xlims=[0,4]):
+def PLOT_tauRAMD_dataset(tr, tr_name: list[str], types_list: list[str]|None = None, xlims: list[float]|None = None):
     """
     Parameters:
-    tr_FAK_- a set of trajectory objects (for each ligand)
-    tr_FAK_name - name of the ligand to be indicated in the plot
+    tr - a set of trajectory objects (for each ligand)
+    tr_name - name of the ligand to be indicated in the plot
     types_list - a list of ligand types to be shown in different colors
     Returns:
     """
+    xlims = [0, 4] if xlims is None else xlims
+    types_list = [""] if types_list is None else types_list
+
     fig = plt.figure(figsize=(16, 8))
     plt.xlim(xlims)
     color = ['b','r','k','m','c','olive','tomato','firebrick','salmon','seagreen','salmon','peru']
@@ -1350,17 +1043,21 @@ def PLOT_tauRAMD_dataset(tr,tr_name = None,types_list = [""],xlims=[0,4]):
 
     x_tick_lable = []
     x_tick_pos = []
-    for k in range(0,6):
-        for ii,i in enumerate(range(pow(10,k),pow(10,k+1),pow(10,k))):  
-            if(ii == 0): x_tick_lable.append(str(i/10.))
-            else: x_tick_lable.append("")
+    for k in range(0, 6):
+        for ii,i in enumerate(range(pow(10,k),pow(10,k+1),pow(10,k))):
+            if ii==0:
+                x_tick_lable.append(str(i/10.))
+            else:
+                x_tick_lable.append("")
             x_tick_pos.append(np.log10(i/10.))
     y_tick_lable = []
     y_tick_pos = []
-    for k in range(0,3):
-        for ii,i in enumerate(range(pow(10,k),pow(10,k+1),pow(10,k))):            
-            if(ii == 0): y_tick_lable.append(str(i/10.))
-            else: y_tick_lable.append("")
+    for k in range(0, 3):
+        for ii,i in enumerate(range(pow(10,k),pow(10,k+1),pow(10,k))):
+            if ii==0:
+                y_tick_lable.append(str(i/10.))
+            else:
+                y_tick_lable.append("")
             y_tick_pos.append(np.log10(i/10.))
     Xt = []
     yt = []
@@ -1383,27 +1080,21 @@ def PLOT_tauRAMD_dataset(tr,tr_name = None,types_list = [""],xlims=[0,4]):
                     X_err.append(1/(t.ramd.tau*np.log(10))*t.ramd.tau_SD)
                     yt_err.append(t.tau_exp_SD)
                     Xt_err.append(1/(t.ramd.tau*np.log(10))*t.ramd.tau_SD)
-                    if (len(tr) == len(tr_name)):
+                    if len(tr)==len(tr_name):
                         txt.append(tr_name[j])
-#        print(type_comp,len(y),len(yt))
-#        ax = fig.add_subplot(111)
-        if(len(y) > 0):
+        if len(y)>0:
             plt.errorbar(x=y,y=X,xerr=y_err,yerr= X_err, color = "gray" , fmt='o', markersize=1 )
             plt.scatter(x=y,y=X, color = color[i] , s=50 )
         else:
             logger.info(f"type {t.type} was not found")
-            
-#        if tr_name:
-#            for j, t in enumerate(txt):    ax.annotate(t, (y[j], X[j]))
-        if(len(y) > 8):
+
+        if len(y)>8:
             slope, intercept, r_value, _p_value, _std_err = stats.linregress(x=y,y=X)
             fitt = np.asarray(y)*slope+intercept
             ind = np.argwhere(np.abs(fitt-X) < 0.5).flatten()
-            slope, intercept, r_value, p_value, std_err = stats.linregress(x=np.asarray(y)[ind],y=np.asarray(X)[ind])
+            slope, intercept, r_value, _p_value, _std_err = stats.linregress(x=np.asarray(y)[ind],y=np.asarray(X)[ind])
             fitt = np.asarray(y)*slope+intercept
             ind = np.argwhere(np.abs(fitt-X) >= 0.5).flatten()
-#        if (len(ind) > 0):
-#            if tr_name: print("Outliers: ",np.asarray(txt)[ind])
             plt.plot(y,fitt,color = color[i],linewidth=0.5,linestyle='dotted')
 
     slope, intercept, r_value, _p_value, _std_err = stats.linregress(x=yt,y=Xt)
@@ -1412,7 +1103,7 @@ def PLOT_tauRAMD_dataset(tr,tr_name = None,types_list = [""],xlims=[0,4]):
     ind = np.argwhere(np.abs(fitt-Xt) < 0.5).flatten()
     slope, intercept, r_value, _p_value, _std_err = stats.linregress(x=np.asarray(yt)[ind],y=np.asarray(Xt)[ind])
     ind = np.argwhere(np.abs(fitt-Xt) >= 0.5).flatten()
-    if (len(ind) > 0):
+    if len(ind)>0:
         if tr_name:
             logger.info(f"Outliers: {np.asarray(txt)[ind]}")
         plt.scatter(x=np.asarray(yt)[ind], y=np.asarray(Xt)[ind], color = 'orange', alpha=0.5, s=200)
@@ -1421,5 +1112,5 @@ def PLOT_tauRAMD_dataset(tr,tr_name = None,types_list = [""],xlims=[0,4]):
     plt.xticks(x_tick_pos,x_tick_lable, fontsize=16)
     plt.yticks(y_tick_pos,y_tick_lable, fontsize=16)
     plt.show()
+    plt.close(fig)
     logger.info(f"Without Outliers: R2 = {r_value}")
-    return
